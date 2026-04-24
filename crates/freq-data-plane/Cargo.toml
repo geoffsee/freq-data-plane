@@ -1,0 +1,22 @@
+[package]
+name = "freq-data-plane"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+axum = "0.8.9"
+http = "1.4.0"
+opentelemetry = "0.31.0"
+opentelemetry-otlp = { version = "0.31.1", features = ["grpc-tonic"] }
+opentelemetry_sdk = "0.31.0"
+serde = { version = "1.0.228", features = ["derive"] }
+duckdb = { version = "1", default-features = false }
+tower-http = { version = "0.6.8", features = ["trace"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+tokio = { version = "1.52.1", features = ["full"] }
+time = "0.3"
+tower-sessions = "0.15"
+tracing-opentelemetry = "0.32.1"
+user-database = { path = "../user-database" }
+data-sdk = { path = "../data-sdk" }

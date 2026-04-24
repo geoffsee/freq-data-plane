@@ -1,0 +1,801 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{APP_NAME}} — Data Control Plane</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            mono: ['JetBrains Mono', 'monospace'],
+            sans: ['DM Sans', 'sans-serif'],
+          },
+          colors: {
+            surface: { 50: '#fafafa', 100: '#18181b', 200: '#1e1e22', 300: '#27272b', 400: '#333338', 500: '#3f3f46' },
+            phosphor: { DEFAULT: '#39ff85', dim: '#2bcc6a', dark: '#1a7a3f', glow: 'rgba(57,255,133,0.12)' },
+            ember: { DEFAULT: '#ff5c5c', dim: '#cc3b3b' },
+            signal: { warn: '#ffb224', info: '#38bdf8', purple: '#a78bfa' },
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    [x-cloak] { display: none !important; }
+    body { background: #111114; }
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #3f3f46; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #52525b; }
+
+    .glow-line { box-shadow: inset 2px 0 0 0 #39ff85; }
+    .grid-bg {
+      background-image:
+        linear-gradient(rgba(57,255,133,0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(57,255,133,0.03) 1px, transparent 1px);
+      background-size: 24px 24px;
+    }
+    @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+    @keyframes fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-up { animation: fade-up 0.3s ease-out both; }
+    .fade-up-1 { animation-delay: 0.05s; }
+    .fade-up-2 { animation-delay: 0.1s; }
+    .fade-up-3 { animation-delay: 0.15s; }
+    .fade-up-4 { animation-delay: 0.2s; }
+
+    .stat-card {
+      background: linear-gradient(135deg, #1e1e22 0%, #27272b 100%);
+      border: 1px solid #333338;
+    }
+    .stat-card:hover { border-color: #39ff85; }
+
+    .table-row { transition: background 0.15s; }
+    .table-row:hover { background: rgba(57,255,133,0.04); }
+
+    .modal-backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
+  </style>
+</head>
+<body class="font-sans text-gray-300 min-h-screen flex" x-data="controlPlane()">
+
+  <!-- ───────────── SIDEBAR ───────────── -->
+  <aside class="w-60 bg-surface-100 border-r border-surface-400 flex flex-col fixed h-full z-30">
+    <!-- Logo -->
+    <a href="/" class="flex items-center gap-2.5 px-5 py-5 border-b border-surface-400 group">
+      <div class="w-7 h-7 rounded bg-phosphor flex items-center justify-center">
+        <span class="text-surface-100 font-mono font-bold text-sm">F</span>
+      </div>
+      <div>
+        <div class="text-white text-sm font-semibold tracking-tight group-hover:text-phosphor transition-colors">Freq</div>
+        <div class="text-[10px] text-gray-500 font-mono uppercase tracking-widest">Control Plane</div>
+      </div>
+    </a>
+
+    <!-- Nav -->
+    <nav class="flex-1 py-3 overflow-y-auto">
+      <div class="px-4 mb-2">
+        <span class="text-[10px] font-mono uppercase tracking-widest text-gray-600">Platform</span>
+      </div>
+      <template x-for="item in navItems" :key="item.id">
+        <button @click="view = item.id"
+                :class="view === item.id ? 'bg-phosphor/10 text-phosphor border-l-2 border-phosphor' : 'text-gray-400 border-l-2 border-transparent hover:text-gray-200 hover:bg-surface-300/50'"
+                class="w-full flex items-center justify-between px-4 py-2 text-sm transition-all">
+          <span class="flex items-center gap-2.5">
+            <span class="w-5 text-center text-base" x-text="item.icon"></span>
+            <span class="font-medium" x-text="item.label"></span>
+          </span>
+          <span x-show="item.count"
+                :class="view === item.id ? 'bg-phosphor/20 text-phosphor' : 'bg-surface-400 text-gray-500'"
+                class="text-[11px] font-mono px-1.5 py-0.5 rounded"
+                x-text="item.count"></span>
+        </button>
+      </template>
+
+      <div class="px-4 mt-5 mb-2">
+        <span class="text-[10px] font-mono uppercase tracking-widest text-gray-600">Observability</span>
+      </div>
+      <button @click="view = 'audit'"
+              :class="view === 'audit' ? 'bg-phosphor/10 text-phosphor border-l-2 border-phosphor' : 'text-gray-400 border-l-2 border-transparent hover:text-gray-200 hover:bg-surface-300/50'"
+              class="w-full flex items-center justify-between px-4 py-2 text-sm transition-all">
+        <span class="flex items-center gap-2.5">
+          <span class="w-5 text-center text-base">&#9783;</span>
+          <span class="font-medium">Audit Log</span>
+        </span>
+        <span :class="view === 'audit' ? 'bg-phosphor/20 text-phosphor' : 'bg-surface-400 text-gray-500'"
+              class="text-[11px] font-mono px-1.5 py-0.5 rounded">48</span>
+      </button>
+    </nav>
+
+    <!-- User -->
+    <div class="border-t border-surface-400 px-4 py-3">
+      <div class="flex items-center gap-2.5">
+        <div class="w-7 h-7 rounded-full bg-surface-400 flex items-center justify-center text-xs font-mono text-phosphor">{{U}}</div>
+        <div class="flex-1 min-w-0">
+          <div class="text-xs text-white truncate">{{USERNAME}}</div>
+          <div class="text-[10px] text-gray-500 font-mono">admin</div>
+        </div>
+        <a href="/" class="text-gray-500 hover:text-gray-300 text-lg" title="Back to dashboard">&larr;</a>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ───────────── MAIN ───────────── -->
+  <main class="flex-1 ml-60 min-h-screen grid-bg">
+
+    <!-- Top bar -->
+    <header class="sticky top-0 z-20 bg-surface-100/80 backdrop-blur-md border-b border-surface-400 px-8 py-3 flex items-center justify-between">
+      <div>
+        <h1 class="text-white font-semibold text-base" x-text="currentTitle"></h1>
+        <p class="text-xs text-gray-500 font-mono" x-text="currentSubtitle"></p>
+      </div>
+      <div class="flex items-center gap-3">
+        <span class="inline-flex items-center gap-1.5 text-xs font-mono text-phosphor-dim bg-phosphor/10 px-2.5 py-1 rounded">
+          <span class="w-1.5 h-1.5 rounded-full bg-phosphor pulse-dot"></span>
+          operational
+        </span>
+        <button x-show="currentCreate" @click="showModal = true"
+                class="px-3 py-1.5 bg-phosphor text-surface-100 text-sm font-semibold rounded hover:bg-phosphor-dim transition-colors">
+          + Create
+        </button>
+      </div>
+    </header>
+
+    <div class="p-8">
+
+      <!-- ═══ OVERVIEW ═══ -->
+      <div x-show="view === 'overview'" x-cloak class="space-y-6">
+        <div class="grid grid-cols-4 gap-4">
+          <template x-for="(s, i) in stats" :key="s.label">
+            <div class="stat-card rounded-lg p-4 transition-colors fade-up" :class="'fade-up-' + (i+1)">
+              <div class="flex items-center justify-between mb-3">
+                <span class="text-2xl" x-text="s.icon"></span>
+                <span class="text-[10px] font-mono uppercase tracking-widest text-gray-500" x-text="s.label"></span>
+              </div>
+              <div class="text-2xl font-mono font-bold text-white" x-text="s.value"></div>
+              <div class="mt-1 text-xs text-gray-500" x-text="s.sub"></div>
+            </div>
+          </template>
+        </div>
+
+        <!-- Recent activity mini -->
+        <div class="bg-surface-200 border border-surface-400 rounded-lg p-5">
+          <h3 class="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+            <span class="w-1.5 h-1.5 rounded-full bg-phosphor pulse-dot"></span>
+            Recent Activity
+          </h3>
+          <div class="space-y-2">
+            <template x-for="e in auditEntries.slice(0,5)" :key="e.id">
+              <div class="flex items-center gap-3 text-xs py-1.5">
+                <span class="font-mono text-gray-600 w-36 shrink-0" x-text="e.time"></span>
+                <span :class="e.success ? 'text-phosphor' : 'text-ember'" class="w-4 text-center" x-text="e.success ? '✓' : '✗'"></span>
+                <span class="text-gray-400 font-mono" x-text="e.principal"></span>
+                <span class="text-gray-600">→</span>
+                <span class="text-white" x-text="e.action"></span>
+                <span class="text-gray-500 truncate" x-text="e.resource"></span>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ TENANTS ═══ -->
+      <div x-show="view === 'tenants'" x-cloak>
+        <div class="bg-surface-200 border border-surface-400 rounded-lg overflow-hidden fade-up">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-surface-400 text-[11px] font-mono uppercase tracking-wider text-gray-500">
+                <th class="text-left px-5 py-3">Tenant Key</th>
+                <th class="text-left px-5 py-3">Name</th>
+                <th class="text-left px-5 py-3">Region</th>
+                <th class="text-left px-5 py-3">Bucket</th>
+                <th class="text-left px-5 py-3">Status</th>
+                <th class="text-left px-5 py-3">Control Plane</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="t in tenants" :key="t.key">
+                <tr class="border-b border-surface-400/50 table-row cursor-pointer">
+                  <td class="px-5 py-3 font-mono text-phosphor text-xs" x-text="t.key"></td>
+                  <td class="px-5 py-3 text-white" x-text="t.name"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="t.region"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="t.bucket"></td>
+                  <td class="px-5 py-3"><span :class="statusClass(t.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="t.status"></span></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500 truncate max-w-[200px]" x-text="t.uri"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ PRINCIPALS ═══ -->
+      <div x-show="view === 'principals'" x-cloak>
+        <div class="bg-surface-200 border border-surface-400 rounded-lg overflow-hidden fade-up">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-surface-400 text-[11px] font-mono uppercase tracking-wider text-gray-500">
+                <th class="text-left px-5 py-3">Principal</th>
+                <th class="text-left px-5 py-3">Type</th>
+                <th class="text-left px-5 py-3">Email</th>
+                <th class="text-left px-5 py-3">Roles</th>
+                <th class="text-left px-5 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="p in principals" :key="p.key">
+                <tr class="border-b border-surface-400/50 table-row cursor-pointer">
+                  <td class="px-5 py-3">
+                    <div class="flex items-center gap-2.5">
+                      <div class="w-7 h-7 rounded bg-surface-400 flex items-center justify-center text-xs font-mono" :class="p.type === 'ServiceAccount' ? 'text-signal-info' : 'text-signal-purple'" x-text="p.display.charAt(0).toUpperCase()"></div>
+                      <div>
+                        <div class="text-white text-sm" x-text="p.display"></div>
+                        <div class="text-[11px] font-mono text-gray-500" x-text="p.key"></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td class="px-5 py-3">
+                    <span class="text-[11px] font-mono px-2 py-0.5 rounded"
+                          :class="p.type === 'User' ? 'bg-signal-purple/15 text-signal-purple' : p.type === 'ServiceAccount' ? 'bg-signal-info/15 text-signal-info' : 'bg-surface-400 text-gray-400'"
+                          x-text="p.type"></span>
+                  </td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="p.email || '—'"></td>
+                  <td class="px-5 py-3">
+                    <div class="flex gap-1.5 flex-wrap">
+                      <template x-for="r in p.roles" :key="r">
+                        <span class="text-[10px] font-mono bg-surface-400 text-gray-300 px-1.5 py-0.5 rounded" x-text="r"></span>
+                      </template>
+                    </div>
+                  </td>
+                  <td class="px-5 py-3"><span :class="statusClass(p.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="p.status"></span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ SECRETS ═══ -->
+      <div x-show="view === 'secrets'" x-cloak>
+        <div class="bg-surface-200 border border-surface-400 rounded-lg overflow-hidden fade-up">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-surface-400 text-[11px] font-mono uppercase tracking-wider text-gray-500">
+                <th class="text-left px-5 py-3">Secret</th>
+                <th class="text-left px-5 py-3">Provider</th>
+                <th class="text-left px-5 py-3">Auth Method</th>
+                <th class="text-left px-5 py-3">URI Prefix</th>
+                <th class="text-left px-5 py-3">Rotated</th>
+                <th class="text-left px-5 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="s in secrets" :key="s.key">
+                <tr class="border-b border-surface-400/50 table-row cursor-pointer">
+                  <td class="px-5 py-3">
+                    <div class="text-white text-sm" x-text="s.name"></div>
+                    <div class="text-[11px] font-mono text-gray-500" x-text="s.key"></div>
+                  </td>
+                  <td class="px-5 py-3">
+                    <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-signal-warn/15 text-signal-warn" x-text="s.provider"></span>
+                  </td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="s.auth"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="s.prefix"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="s.rotated"></td>
+                  <td class="px-5 py-3"><span :class="statusClass(s.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="s.status"></span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ DATABASE REFS ═══ -->
+      <div x-show="view === 'databases'" x-cloak>
+        <div class="bg-surface-200 border border-surface-400 rounded-lg overflow-hidden fade-up">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-surface-400 text-[11px] font-mono uppercase tracking-wider text-gray-500">
+                <th class="text-left px-5 py-3">Database</th>
+                <th class="text-left px-5 py-3">Kind</th>
+                <th class="text-left px-5 py-3">URI</th>
+                <th class="text-left px-5 py-3">Alias</th>
+                <th class="text-left px-5 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="d in databases" :key="d.key">
+                <tr class="border-b border-surface-400/50 table-row cursor-pointer">
+                  <td class="px-5 py-3">
+                    <div class="text-white text-sm" x-text="d.name"></div>
+                    <div class="text-[11px] font-mono text-gray-500" x-text="d.key"></div>
+                  </td>
+                  <td class="px-5 py-3">
+                    <span class="text-[11px] font-mono px-2 py-0.5 rounded"
+                          :class="d.kind.includes('Duckdb') ? 'bg-signal-warn/15 text-signal-warn' : d.kind.includes('Parquet') ? 'bg-phosphor/15 text-phosphor' : d.kind.includes('Iceberg') ? 'bg-signal-info/15 text-signal-info' : 'bg-surface-400 text-gray-400'"
+                          x-text="d.kind"></span>
+                  </td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400 truncate max-w-[280px]" x-text="d.uri"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-signal-purple" x-text="d.alias"></td>
+                  <td class="px-5 py-3"><span :class="statusClass(d.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="d.status"></span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ ASSETS ═══ -->
+      <div x-show="view === 'assets'" x-cloak>
+        <div class="bg-surface-200 border border-surface-400 rounded-lg overflow-hidden fade-up">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-surface-400 text-[11px] font-mono uppercase tracking-wider text-gray-500">
+                <th class="text-left px-5 py-3">Asset</th>
+                <th class="text-left px-5 py-3">Type</th>
+                <th class="text-left px-5 py-3">Classification</th>
+                <th class="text-left px-5 py-3">Owner</th>
+                <th class="text-left px-5 py-3">Database</th>
+                <th class="text-left px-5 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="a in assets" :key="a.key">
+                <tr class="border-b border-surface-400/50 table-row cursor-pointer">
+                  <td class="px-5 py-3">
+                    <div class="text-white text-sm" x-text="a.name"></div>
+                    <div class="text-[11px] font-mono text-gray-500" x-text="a.key"></div>
+                  </td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="a.type"></td>
+                  <td class="px-5 py-3">
+                    <span class="text-[11px] font-mono font-medium px-2 py-0.5 rounded"
+                          :class="classificationClass(a.classification)"
+                          x-text="a.classification"></span>
+                  </td>
+                  <td class="px-5 py-3 text-xs text-gray-400" x-text="a.owner"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="a.database"></td>
+                  <td class="px-5 py-3"><span :class="statusClass(a.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="a.status"></span></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ MAPPINGS ═══ -->
+      <div x-show="view === 'mappings'" x-cloak>
+        <div class="bg-surface-200 border border-surface-400 rounded-lg overflow-hidden fade-up">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-surface-400 text-[11px] font-mono uppercase tracking-wider text-gray-500">
+                <th class="text-left px-5 py-3">Mapping Key</th>
+                <th class="text-left px-5 py-3">Logical</th>
+                <th class="text-left px-5 py-3"></th>
+                <th class="text-left px-5 py-3">Physical</th>
+                <th class="text-left px-5 py-3">Type</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="m in mappings" :key="m.key">
+                <tr class="border-b border-surface-400/50 table-row">
+                  <td class="px-5 py-3 font-mono text-xs text-phosphor" x-text="m.key"></td>
+                  <td class="px-5 py-3">
+                    <span class="font-mono text-xs text-white bg-surface-400 px-2 py-1 rounded" x-text="m.logicalSchema + '.' + m.logicalObject"></span>
+                  </td>
+                  <td class="px-5 py-3 text-phosphor text-lg">→</td>
+                  <td class="px-5 py-3">
+                    <span class="font-mono text-xs text-signal-info bg-signal-info/10 px-2 py-1 rounded" x-text="m.physicalSchema + '.' + m.physicalObject"></span>
+                  </td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="m.type"></td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ POLICIES ═══ -->
+      <div x-show="view === 'policies'" x-cloak>
+        <div class="bg-surface-200 border border-surface-400 rounded-lg overflow-hidden fade-up">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="border-b border-surface-400 text-[11px] font-mono uppercase tracking-wider text-gray-500">
+                <th class="text-left px-5 py-3">Policy</th>
+                <th class="text-left px-5 py-3">Effect</th>
+                <th class="text-left px-5 py-3">Subject</th>
+                <th class="text-left px-5 py-3">Resource</th>
+                <th class="text-left px-5 py-3">Permissions</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="p in policies" :key="p.key">
+                <tr class="border-b border-surface-400/50 table-row cursor-pointer">
+                  <td class="px-5 py-3">
+                    <div class="text-white text-sm" x-text="p.name"></div>
+                    <div class="text-[11px] font-mono text-gray-500" x-text="p.key"></div>
+                  </td>
+                  <td class="px-5 py-3">
+                    <span class="text-[11px] font-mono font-bold px-2 py-0.5 rounded"
+                          :class="p.effect === 'Allow' ? 'bg-phosphor/15 text-phosphor' : 'bg-ember/15 text-ember'"
+                          x-text="p.effect"></span>
+                  </td>
+                  <td class="px-5 py-3">
+                    <div class="text-xs text-gray-400" x-text="p.subjectType"></div>
+                    <div class="font-mono text-xs text-white" x-text="p.subject"></div>
+                  </td>
+                  <td class="px-5 py-3">
+                    <div class="text-xs text-gray-400" x-text="p.resourceType"></div>
+                    <div class="font-mono text-xs text-white" x-text="p.resource"></div>
+                  </td>
+                  <td class="px-5 py-3">
+                    <div class="flex gap-1">
+                      <template x-for="perm in p.perms" :key="perm">
+                        <span class="text-[10px] font-mono px-1.5 py-0.5 rounded"
+                              :class="p.effect === 'Allow' ? 'bg-phosphor/10 text-phosphor-dim' : 'bg-ember/10 text-ember-dim line-through'"
+                              x-text="perm"></span>
+                      </template>
+                    </div>
+                  </td>
+                </tr>
+              </template>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- ═══ DELIVERY ═══ -->
+      <div x-show="view === 'delivery'" x-cloak class="space-y-6">
+        <!-- Channels -->
+        <div class="fade-up">
+          <h3 class="text-xs font-mono uppercase tracking-widest text-gray-500 mb-3">Delivery Channels</h3>
+          <div class="grid grid-cols-3 gap-4">
+            <template x-for="ch in channels" :key="ch.key">
+              <div class="bg-surface-200 border border-surface-400 rounded-lg p-4 hover:border-phosphor/50 transition-colors cursor-pointer">
+                <div class="flex items-center justify-between mb-3">
+                  <span class="text-lg" x-text="ch.icon"></span>
+                  <span :class="statusClass(ch.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="ch.status"></span>
+                </div>
+                <div class="text-white text-sm font-medium" x-text="ch.name"></div>
+                <div class="font-mono text-xs text-gray-500 mt-0.5" x-text="ch.type"></div>
+                <div class="font-mono text-[11px] text-gray-600 mt-2 truncate" x-text="ch.uri"></div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <!-- Deliveries -->
+        <div class="fade-up fade-up-2">
+          <h3 class="text-xs font-mono uppercase tracking-widest text-gray-500 mb-3">Deliveries</h3>
+          <div class="bg-surface-200 border border-surface-400 rounded-lg overflow-hidden">
+            <table class="w-full text-sm">
+              <thead>
+                <tr class="border-b border-surface-400 text-[11px] font-mono uppercase tracking-wider text-gray-500">
+                  <th class="text-left px-5 py-3">Delivery</th>
+                  <th class="text-left px-5 py-3">Type</th>
+                  <th class="text-left px-5 py-3">Asset</th>
+                  <th class="text-left px-5 py-3">Rows</th>
+                  <th class="text-left px-5 py-3">Size</th>
+                  <th class="text-left px-5 py-3">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="d in deliveries" :key="d.key">
+                  <tr class="border-b border-surface-400/50 table-row cursor-pointer">
+                    <td class="px-5 py-3">
+                      <div class="text-white text-sm" x-text="d.key"></div>
+                      <div class="text-[11px] text-gray-500" x-text="d.time"></div>
+                    </td>
+                    <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="d.type"></td>
+                    <td class="px-5 py-3 font-mono text-xs text-signal-purple" x-text="d.asset"></td>
+                    <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="d.rows"></td>
+                    <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="d.size"></td>
+                    <td class="px-5 py-3">
+                      <span class="text-[11px] font-mono font-medium px-2 py-0.5 rounded"
+                            :class="d.status === 'Succeeded' ? 'bg-phosphor/15 text-phosphor' : d.status === 'Running' ? 'bg-signal-info/15 text-signal-info' : d.status === 'Failed' ? 'bg-ember/15 text-ember' : 'bg-signal-warn/15 text-signal-warn'"
+                            x-text="d.status"></span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ AUDIT LOG ═══ -->
+      <div x-show="view === 'audit'" x-cloak>
+        <div class="bg-surface-200 border border-surface-400 rounded-lg p-5 fade-up">
+          <div class="space-y-0">
+            <template x-for="(e, i) in auditEntries" :key="e.id">
+              <div class="flex gap-4 py-3 border-b border-surface-400/40 last:border-b-0">
+                <!-- Timeline gutter -->
+                <div class="flex flex-col items-center w-5 shrink-0 pt-0.5">
+                  <div class="w-2.5 h-2.5 rounded-full" :class="e.success ? 'bg-phosphor' : 'bg-ember'"></div>
+                  <div class="w-px flex-1 bg-surface-400 mt-1" x-show="i < auditEntries.length - 1"></div>
+                </div>
+                <!-- Content -->
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-3 mb-0.5">
+                    <span class="text-white text-sm font-medium" x-text="e.action"></span>
+                    <span :class="e.success ? 'bg-phosphor/15 text-phosphor' : 'bg-ember/15 text-ember'" class="text-[10px] font-mono px-1.5 py-0.5 rounded" x-text="e.success ? 'ok' : 'fail'"></span>
+                  </div>
+                  <div class="flex items-center gap-2 text-xs">
+                    <span class="font-mono text-signal-purple" x-text="e.principal"></span>
+                    <template x-if="e.resource">
+                      <span class="text-gray-600">on</span>
+                    </template>
+                    <template x-if="e.resource">
+                      <span class="font-mono text-gray-400" x-text="e.resource"></span>
+                    </template>
+                  </div>
+                  <div class="text-[11px] font-mono text-gray-600 mt-0.5" x-text="e.time"></div>
+                  <template x-if="e.error">
+                    <div class="mt-1.5 text-xs font-mono text-ember bg-ember/10 px-2 py-1 rounded inline-block" x-text="e.error"></div>
+                  </template>
+                  <template x-if="e.query">
+                    <div class="mt-1.5 text-xs font-mono text-gray-500 bg-surface-100 px-2 py-1 rounded" x-text="e.query"></div>
+                  </template>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ───────────── CREATE MODAL ───────────── -->
+  <div x-show="showModal" x-cloak class="fixed inset-0 z-50 flex items-start justify-end" @keydown.escape.window="showModal = false">
+    <div class="modal-backdrop absolute inset-0" @click="showModal = false"></div>
+    <!-- Slide-over panel -->
+    <div class="relative w-full max-w-md h-full bg-surface-200 border-l border-surface-400 shadow-2xl overflow-y-auto"
+         x-show="showModal"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="translate-x-full"
+         x-transition:enter-end="translate-x-0"
+         x-transition:leave="transition ease-in duration-150"
+         x-transition:leave-start="translate-x-0"
+         x-transition:leave-end="translate-x-full">
+
+      <div class="sticky top-0 bg-surface-200/95 backdrop-blur-sm border-b border-surface-400 px-6 py-4 flex items-center justify-between">
+        <h2 class="text-white font-semibold" x-text="'Create ' + currentTitle.replace(/s$/, '')"></h2>
+        <button @click="showModal = false" class="text-gray-500 hover:text-white text-xl">&times;</button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <template x-for="field in currentFields" :key="field.name">
+          <div>
+            <label class="block text-xs font-mono uppercase tracking-wider text-gray-500 mb-1.5" x-text="field.label"></label>
+            <template x-if="field.type === 'select'">
+              <select class="w-full px-3 py-2 bg-surface-100 border border-surface-400 rounded text-sm text-white focus:outline-none focus:border-phosphor">
+                <template x-for="opt in field.options" :key="opt">
+                  <option x-text="opt"></option>
+                </template>
+              </select>
+            </template>
+            <template x-if="field.type === 'text'">
+              <input type="text" :placeholder="field.placeholder"
+                     class="w-full px-3 py-2 bg-surface-100 border border-surface-400 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-phosphor">
+            </template>
+            <template x-if="field.type === 'textarea'">
+              <textarea :placeholder="field.placeholder" rows="2"
+                        class="w-full px-3 py-2 bg-surface-100 border border-surface-400 rounded text-sm text-white placeholder-gray-600 focus:outline-none focus:border-phosphor resize-none"></textarea>
+            </template>
+          </div>
+        </template>
+
+        <div class="pt-4 flex gap-3">
+          <button @click="showModal = false"
+                  class="flex-1 px-4 py-2 bg-phosphor text-surface-100 text-sm font-semibold rounded hover:bg-phosphor-dim transition-colors">
+            Create
+          </button>
+          <button @click="showModal = false"
+                  class="px-4 py-2 border border-surface-400 text-gray-400 text-sm rounded hover:text-white hover:border-gray-500 transition-colors">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ───────────── DATA & LOGIC ───────────── -->
+  <script>
+    function controlPlane() {
+      return {
+        view: 'overview',
+        showModal: false,
+
+        navItems: [
+          { id: 'overview',    icon: '◫', label: 'Overview',       count: null },
+          { id: 'tenants',     icon: '⊞', label: 'Tenants',        count: 3 },
+          { id: 'principals',  icon: '⊛', label: 'Principals',     count: 6 },
+          { id: 'secrets',     icon: '⊘', label: 'Secrets',        count: 4 },
+          { id: 'databases',   icon: '⊟', label: 'Databases',      count: 5 },
+          { id: 'assets',      icon: '◆', label: 'Assets',         count: 8 },
+          { id: 'mappings',    icon: '⇌', label: 'Mappings',       count: 3 },
+          { id: 'policies',    icon: '⊜', label: 'Policies',       count: 5 },
+          { id: 'delivery',    icon: '⊳', label: 'Delivery',       count: 4 },
+        ],
+
+        stats: [
+          { icon: '⊞', label: 'Tenants',    value: 3,  sub: '3 active, 0 suspended' },
+          { icon: '◆', label: 'Assets',     value: 8,  sub: '2 confidential, 3 internal' },
+          { icon: '⊟', label: 'Databases',  value: 5,  sub: '12.4 GB total' },
+          { icon: '⊳', label: 'Deliveries', value: 47, sub: '3 running now' },
+        ],
+
+        get currentTitle() {
+          const m = { overview: 'Overview', tenants: 'Tenants', principals: 'Principals & Roles', secrets: 'Secrets', databases: 'Database References', assets: 'Assets', mappings: 'Schema Mappings', policies: 'Access Policies', delivery: 'Delivery', audit: 'Audit Log' };
+          return m[this.view] || '';
+        },
+        get currentSubtitle() {
+          const m = { overview: 'System health and recent activity', tenants: 'Tenant isolation boundaries', principals: 'Identity and role management', secrets: 'Credential handles and providers', databases: 'Registered data sources', assets: 'Cataloged data assets', mappings: 'Logical-to-physical name translation', policies: 'Authorization rules', delivery: 'Data movement channels and jobs', audit: 'System-wide event history' };
+          return m[this.view] || '';
+        },
+        get currentCreate() {
+          return !['overview', 'audit'].includes(this.view);
+        },
+        get currentFields() {
+          const f = {
+            tenants: [
+              { name: 'key',     label: 'Tenant Key',        type: 'text',   placeholder: 'acme-corp' },
+              { name: 'name',    label: 'Tenant Name',       type: 'text',   placeholder: 'Acme Corporation' },
+              { name: 'uri',     label: 'Control Plane URI',  type: 'text',   placeholder: 's3://bucket/tenants/acme/control.duckdb' },
+              { name: 'region',  label: 'Default Region',    type: 'select', options: ['us-east-1', 'us-west-2', 'eu-west-1', 'ap-southeast-1'] },
+              { name: 'bucket',  label: 'Default Bucket',    type: 'text',   placeholder: 'acme-data-lake' },
+            ],
+            principals: [
+              { name: 'key',     label: 'Principal Key',  type: 'text',   placeholder: 'jane.smith' },
+              { name: 'type',    label: 'Type',           type: 'select', options: ['User', 'ServiceAccount', 'Group', 'System'] },
+              { name: 'display', label: 'Display Name',   type: 'text',   placeholder: 'Jane Smith' },
+              { name: 'email',   label: 'Email',          type: 'text',   placeholder: 'jane@example.com' },
+            ],
+            secrets: [
+              { name: 'key',      label: 'Secret Key',      type: 'text',   placeholder: 'prod-aws-creds' },
+              { name: 'name',     label: 'Secret Name',     type: 'text',   placeholder: 'Production AWS Credentials' },
+              { name: 'provider', label: 'Provider',        type: 'select', options: ['Aws', 'Minio', 'R2', 'Gcs', 'Azure', 'Vault'] },
+              { name: 'auth',     label: 'Auth Method',     type: 'select', options: ['IamRole', 'InstanceProfile', 'Sts', 'AccessKey', 'Oauth', 'ExternalSecret'] },
+              { name: 'prefix',   label: 'Allowed URI Prefix', type: 'text', placeholder: 's3://my-bucket/' },
+            ],
+            databases: [
+              { name: 'key',   label: 'Database Key',  type: 'text',   placeholder: 'analytics-warehouse' },
+              { name: 'name',  label: 'Database Name', type: 'text',   placeholder: 'Analytics Warehouse' },
+              { name: 'kind',  label: 'Kind',          type: 'select', options: ['DuckdbFile', 'ParquetDataset', 'CsvDataset', 'JsonDataset', 'IcebergCatalog', 'DeltaTable'] },
+              { name: 'uri',   label: 'URI',           type: 'text',   placeholder: 's3://bucket/warehouse.duckdb' },
+              { name: 'alias', label: 'Attach Alias',  type: 'text',   placeholder: 'analytics' },
+            ],
+            assets: [
+              { name: 'key',    label: 'Asset Key',       type: 'text',   placeholder: 'users-table' },
+              { name: 'name',   label: 'Asset Name',      type: 'text',   placeholder: 'Users Table' },
+              { name: 'type',   label: 'Asset Type',      type: 'select', options: ['Database', 'Schema', 'Table', 'View', 'File', 'Dataset', 'Feed', 'Export', 'Report', 'Model', 'Endpoint'] },
+              { name: 'class',  label: 'Classification',  type: 'select', options: ['Public', 'Internal', 'Confidential', 'Restricted'] },
+              { name: 'desc',   label: 'Description',     type: 'textarea', placeholder: 'Describe this asset...' },
+            ],
+            mappings: [
+              { name: 'key',      label: 'Mapping Key',      type: 'text',   placeholder: 'users-map' },
+              { name: 'lschema',  label: 'Logical Schema',   type: 'text',   placeholder: 'public' },
+              { name: 'lobject',  label: 'Logical Object',   type: 'text',   placeholder: 'users' },
+              { name: 'pschema',  label: 'Physical Schema',  type: 'text',   placeholder: 'prod_analytics' },
+              { name: 'pobject',  label: 'Physical Object',  type: 'text',   placeholder: 'user_events_v3' },
+              { name: 'type',     label: 'Type',             type: 'select', options: ['Database', 'Schema', 'Table', 'View', 'Function'] },
+            ],
+            policies: [
+              { name: 'key',     label: 'Policy Key',    type: 'text',   placeholder: 'analyst-read-access' },
+              { name: 'name',    label: 'Policy Name',   type: 'text',   placeholder: 'Analyst Read Access' },
+              { name: 'effect',  label: 'Effect',        type: 'select', options: ['Allow', 'Deny'] },
+              { name: 'subtype', label: 'Subject Type',  type: 'select', options: ['Principal', 'Role', 'Public'] },
+              { name: 'restype', label: 'Resource Type',  type: 'select', options: ['DatabaseRef', 'Asset', 'Schema', 'Table', 'View', 'UriPrefix', 'System'] },
+            ],
+            delivery: [
+              { name: 'key',   label: 'Channel Key',    type: 'text',   placeholder: 'prod-s3-export' },
+              { name: 'name',  label: 'Channel Name',   type: 'text',   placeholder: 'Production S3 Export' },
+              { name: 'type',  label: 'Channel Type',   type: 'select', options: ['S3', 'Http', 'Email', 'Webhook', 'Sftp', 'Api', 'Internal'] },
+              { name: 'uri',   label: 'Destination URI', type: 'text',   placeholder: 's3://exports/daily/' },
+            ],
+          };
+          return f[this.view] || [];
+        },
+
+        // ── Mock data ──
+        tenants: [
+          { key: 'acme-prod',   name: 'Acme Corp (Production)',  region: 'us-east-1',      bucket: 'acme-datalake-prod',   status: 'Active',    uri: 's3://acme-datalake-prod/control/control.duckdb' },
+          { key: 'acme-stage',  name: 'Acme Corp (Staging)',     region: 'us-east-1',      bucket: 'acme-datalake-stage',  status: 'Active',    uri: 's3://acme-datalake-stage/control/control.duckdb' },
+          { key: 'globex-prod', name: 'Globex Industries',       region: 'eu-west-1',      bucket: 'globex-lake-eu',       status: 'Active',    uri: 's3://globex-lake-eu/control/control.duckdb' },
+        ],
+
+        principals: [
+          { key: 'admin',         display: 'Admin',              type: 'User',           email: 'admin@freq.dev',             status: 'Active',   roles: ['admin', 'owner'] },
+          { key: 'jane.smith',    display: 'Jane Smith',         type: 'User',           email: 'jane.smith@acme.com',        status: 'Active',   roles: ['analyst', 'viewer'] },
+          { key: 'bob.chen',      display: 'Bob Chen',           type: 'User',           email: 'bob.chen@acme.com',          status: 'Active',   roles: ['engineer'] },
+          { key: 'ci-pipeline',   display: 'CI Pipeline',        type: 'ServiceAccount', email: null,                         status: 'Active',   roles: ['deployer'] },
+          { key: 'etl-worker',    display: 'ETL Worker',         type: 'ServiceAccount', email: null,                         status: 'Active',   roles: ['writer'] },
+          { key: 'legacy-bot',    display: 'Legacy Bot',         type: 'ServiceAccount', email: null,                         status: 'Disabled', roles: ['viewer'] },
+        ],
+
+        secrets: [
+          { key: 'aws-prod',    name: 'AWS Production',     provider: 'Aws',   auth: 'IamRole',    prefix: 's3://acme-datalake-prod/',   rotated: '2026-04-20', status: 'Active' },
+          { key: 'aws-stage',   name: 'AWS Staging',        provider: 'Aws',   auth: 'AccessKey',  prefix: 's3://acme-datalake-stage/',  rotated: '2026-04-18', status: 'Active' },
+          { key: 'minio-dev',   name: 'MinIO Local Dev',    provider: 'Minio', auth: 'AccessKey',  prefix: 's3://local/',               rotated: '2026-04-01', status: 'Active' },
+          { key: 'vault-creds', name: 'HashiCorp Vault',    provider: 'Vault', auth: 'ExternalSecret', prefix: '*',                     rotated: '2026-03-15', status: 'Disabled' },
+        ],
+
+        databases: [
+          { key: 'analytics-wh',      name: 'Analytics Warehouse',      kind: 'DuckdbFile',      uri: 's3://acme-datalake-prod/warehouse/analytics.duckdb',  alias: 'analytics',  status: 'Active' },
+          { key: 'events-parquet',     name: 'Events Dataset',           kind: 'ParquetDataset',  uri: 's3://acme-datalake-prod/events/**/*.parquet',         alias: 'events',     status: 'Active' },
+          { key: 'user-profiles',      name: 'User Profiles',            kind: 'DuckdbFile',      uri: 's3://acme-datalake-prod/users/profiles.duckdb',       alias: 'profiles',   status: 'Active' },
+          { key: 'iceberg-catalog',    name: 'Iceberg Lakehouse',        kind: 'IcebergCatalog',  uri: 's3://acme-datalake-prod/iceberg/',                    alias: 'lakehouse',  status: 'Active' },
+          { key: 'legacy-csv-imports', name: 'Legacy CSV Imports',       kind: 'CsvDataset',      uri: 's3://acme-datalake-stage/legacy/csv/',                alias: 'legacy',     status: 'Archived' },
+        ],
+
+        assets: [
+          { key: 'events-raw',       name: 'Raw Events',            type: 'Table',    classification: 'Internal',      owner: 'Bob Chen',     database: 'events-parquet',   status: 'Active' },
+          { key: 'user-pii',         name: 'User PII',              type: 'Table',    classification: 'Restricted',    owner: 'Jane Smith',   database: 'user-profiles',    status: 'Active' },
+          { key: 'sessions-view',    name: 'Active Sessions',       type: 'View',     classification: 'Internal',      owner: 'Bob Chen',     database: 'analytics-wh',     status: 'Active' },
+          { key: 'revenue-report',   name: 'Revenue Report',        type: 'Report',   classification: 'Confidential',  owner: 'Jane Smith',   database: 'analytics-wh',     status: 'Active' },
+          { key: 'api-logs',         name: 'API Logs',              type: 'Dataset',  classification: 'Internal',      owner: 'CI Pipeline',  database: 'events-parquet',   status: 'Active' },
+          { key: 'public-catalog',   name: 'Public Product Catalog',type: 'Table',    classification: 'Public',        owner: 'Admin',        database: 'analytics-wh',     status: 'Active' },
+          { key: 'ml-features',      name: 'ML Feature Store',      type: 'Dataset',  classification: 'Confidential',  owner: 'Bob Chen',     database: 'iceberg-catalog',  status: 'Active' },
+          { key: 'legacy-users',     name: 'Legacy User Dump',      type: 'File',     classification: 'Restricted',    owner: 'Admin',        database: 'legacy-csv-imports', status: 'Deprecated' },
+        ],
+
+        mappings: [
+          { key: 'events-v3-map',  logicalSchema: 'public',    logicalObject: 'events',     physicalSchema: 'raw_ingest',      physicalObject: 'events_v3_partitioned', type: 'Table' },
+          { key: 'users-map',      logicalSchema: 'public',    logicalObject: 'users',      physicalSchema: 'pii_restricted',  physicalObject: 'user_records_enc',     type: 'Table' },
+          { key: 'revenue-view',   logicalSchema: 'analytics', logicalObject: 'revenue',    physicalSchema: 'finance_secure',  physicalObject: 'revenue_daily_mv',     type: 'View' },
+        ],
+
+        policies: [
+          { key: 'admin-full',       name: 'Admin Full Access',          effect: 'Allow', subjectType: 'Role',      subject: 'admin',       resourceType: 'System',      resource: '*',               perms: ['read', 'write', 'admin'] },
+          { key: 'analyst-read',     name: 'Analyst Read Access',        effect: 'Allow', subjectType: 'Role',      subject: 'analyst',     resourceType: 'DatabaseRef', resource: 'analytics-wh',    perms: ['read'] },
+          { key: 'deny-pii-export',  name: 'Deny PII Export',            effect: 'Deny',  subjectType: 'Role',      subject: 'analyst',     resourceType: 'Asset',       resource: 'user-pii',        perms: ['write', 'admin'] },
+          { key: 'ci-deploy',        name: 'CI Deploy Access',           effect: 'Allow', subjectType: 'Principal', subject: 'ci-pipeline', resourceType: 'DatabaseRef', resource: 'analytics-wh',    perms: ['read', 'write'] },
+          { key: 'public-read',      name: 'Public Catalog Open Access', effect: 'Allow', subjectType: 'Public',    subject: '(everyone)',  resourceType: 'Asset',       resource: 'public-catalog',  perms: ['read'] },
+        ],
+
+        channels: [
+          { key: 'prod-s3-export',  name: 'Production S3 Export',  type: 'S3',      uri: 's3://acme-exports/daily/',           status: 'Active',   icon: '☁' },
+          { key: 'webhook-slack',   name: 'Slack Notifications',   type: 'Webhook', uri: 'https://hooks.slack.com/...',        status: 'Active',   icon: '⚡' },
+          { key: 'sftp-partner',    name: 'Partner SFTP',          type: 'Sftp',    uri: 'sftp://partner.example.com/inbound', status: 'Disabled', icon: '⇅' },
+        ],
+
+        deliveries: [
+          { key: 'del-20260424-001', type: 'Export',     asset: 'revenue-report',  rows: '142,387',  size: '24.3 MB',  status: 'Succeeded', time: '2026-04-24 13:00:02' },
+          { key: 'del-20260424-002', type: 'Snapshot',   asset: 'events-raw',      rows: '1,203,841',size: '312.7 MB', status: 'Running',   time: '2026-04-24 13:15:00' },
+          { key: 'del-20260424-003', type: 'Import',     asset: 'ml-features',     rows: '89,201',   size: '18.1 MB',  status: 'Pending',   time: '2026-04-24 14:00:00' },
+          { key: 'del-20260423-018', type: 'Export',     asset: 'api-logs',        rows: '2,891,002',size: '1.2 GB',   status: 'Failed',    time: '2026-04-23 22:00:00' },
+        ],
+
+        auditEntries: [
+          { id: 1,  time: '2026-04-24 13:22:41', action: 'query',              principal: 'jane.smith',  resource: 'analytics-wh / revenue_daily_mv', success: true,  query: 'SELECT date, revenue FROM revenue WHERE date > \'2026-04-01\'' },
+          { id: 2,  time: '2026-04-24 13:21:03', action: 'delivery.start',     principal: 'etl-worker',  resource: 'events-raw',                      success: true },
+          { id: 3,  time: '2026-04-24 13:18:55', action: 'attach_database',    principal: 'jane.smith',  resource: 'analytics-wh',                    success: true },
+          { id: 4,  time: '2026-04-24 13:15:12', action: 'login',              principal: 'jane.smith',  resource: null,                              success: true },
+          { id: 5,  time: '2026-04-24 13:12:00', action: 'delivery.complete',  principal: 'etl-worker',  resource: 'revenue-report',                  success: true },
+          { id: 6,  time: '2026-04-24 12:58:33', action: 'policy.evaluate',    principal: 'bob.chen',    resource: 'user-pii',                        success: false, error: 'Denied by policy: deny-pii-export' },
+          { id: 7,  time: '2026-04-24 12:45:01', action: 'secret.rotate',      principal: 'admin',       resource: 'aws-prod',                        success: true },
+          { id: 8,  time: '2026-04-24 12:30:00', action: 'asset.create',       principal: 'ci-pipeline', resource: 'ml-features',                     success: true },
+          { id: 9,  time: '2026-04-24 11:59:59', action: 'delivery.fail',      principal: 'etl-worker',  resource: 'api-logs',                        success: false, error: 'Connection timeout: sftp://partner.example.com' },
+          { id: 10, time: '2026-04-24 11:30:12', action: 'login',              principal: 'legacy-bot',  resource: null,                              success: false, error: 'Principal disabled' },
+          { id: 11, time: '2026-04-24 10:00:00', action: 'schema_mapping.create', principal: 'admin',    resource: 'revenue-view',                    success: true },
+          { id: 12, time: '2026-04-24 09:45:22', action: 'login',              principal: 'admin',       resource: null,                              success: true },
+        ],
+
+        statusClass(s) {
+          const m = { Active: 'bg-phosphor/15 text-phosphor', Suspended: 'bg-signal-warn/15 text-signal-warn', Pending: 'bg-signal-warn/15 text-signal-warn', Disabled: 'bg-surface-500 text-gray-400', Deleted: 'bg-ember/15 text-ember', Archived: 'bg-surface-500 text-gray-400', Deprecated: 'bg-signal-warn/15 text-signal-warn' };
+          return m[s] || 'bg-surface-400 text-gray-400';
+        },
+        classificationClass(c) {
+          const m = { Public: 'bg-phosphor/15 text-phosphor', Internal: 'bg-signal-info/15 text-signal-info', Confidential: 'bg-signal-warn/15 text-signal-warn', Restricted: 'bg-ember/15 text-ember' };
+          return m[c] || '';
+        },
+      };
+    }
+  </script>
+</body>
+</html>

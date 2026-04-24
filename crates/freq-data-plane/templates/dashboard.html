@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{APP_NAME}}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body class="bg-gray-100 min-h-screen p-8">
+
+  <!-- Top bar -->
+  <div class="bg-white px-6 py-4 rounded-lg shadow-sm flex items-center justify-between mb-8">
+    <div class="flex items-center gap-4">
+      <h1 class="text-lg font-semibold">{{APP_NAME}}</h1>
+      <a href="/control-plane"
+         class="px-3 py-1 text-sm bg-gray-900 text-white rounded hover:bg-gray-800 transition-colors">
+        Control Plane
+      </a>
+    </div>
+    <span class="text-sm text-gray-600">
+      Logged in as <strong>{{USERNAME}}</strong>
+      <form method="post" action="/logout" class="inline">
+        <button type="submit"
+                class="ml-3 px-3 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+          Log out
+        </button>
+      </form>
+    </span>
+  </div>
+
+  <!-- API Tokens -->
+  <div class="bg-white p-6 rounded-lg shadow-sm mb-4" x-data="tokenManager()">
+    <h2 class="text-lg font-semibold mb-1">API Tokens</h2>
+    <p class="text-sm text-gray-500 mb-4">
+      Generate tokens to authenticate API requests with
+      <code class="bg-gray-100 px-1 rounded text-xs">Authorization: Bearer &lt;token&gt;</code>
+    </p>
+
+    <!-- Create token -->
+    <div class="flex gap-2 mb-4">
+      <input x-model="newLabel" type="text" placeholder="Token label (e.g. CI pipeline)"
+             class="flex-1 px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+             @keydown.enter="create()">
+      <button @click="create()" :disabled="creating"
+              class="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50">
+        Generate Token
+      </button>
+    </div>
+
+    <!-- Newly created token (show once) -->
+    <div x-show="newToken" x-cloak
+         class="bg-amber-50 border border-amber-400 rounded-md p-4 mb-4">
+      <p class="text-sm font-semibold text-amber-800 mb-1">New token created — copy it now, it won't be shown again!</p>
+      <code class="text-sm break-all select-all" x-text="newToken"></code>
+    </div>
+
+    <!-- Token list -->
+    <table class="w-full text-sm" x-show="tokens.length > 0">
+      <thead>
+        <tr class="border-b border-gray-200">
+          <th class="text-left py-2 px-3 font-semibold text-gray-700">Label</th>
+          <th class="text-left py-2 px-3 font-semibold text-gray-700">Created</th>
+          <th class="text-left py-2 px-3 font-semibold text-gray-700">Status</th>
+          <th class="py-2 px-3"></th>
+        </tr>
+      </thead>
+      <tbody>
+        <template x-for="t in tokens" :key="t.token_id">
+          <tr class="border-b border-gray-100">
+            <td class="py-2 px-3" x-text="t.label"></td>
+            <td class="py-2 px-3 text-gray-500" x-text="t.created_at"></td>
+            <td class="py-2 px-3">
+              <span x-show="!t.revoked"
+                    class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Active</span>
+              <span x-show="t.revoked"
+                    class="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Revoked</span>
+            </td>
+            <td class="py-2 px-3 text-right">
+              <button x-show="!t.revoked" @click="revoke(t.token_id)"
+                      class="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors">
+                Revoke
+              </button>
+            </td>
+          </tr>
+        </template>
+      </tbody>
+    </table>
+    <p x-show="tokens.length === 0" class="text-sm text-gray-400">No tokens yet.</p>
+  </div>
+
+  <!-- POST /hello -->
+  <div class="bg-white p-6 rounded-lg shadow-sm mb-4" x-data="{ name: '', result: '// response will appear here' }">
+    <h2 class="text-lg font-semibold mb-3">POST /hello</h2>
+    <p class="text-sm text-gray-500 mb-3">Test the protected <code class="bg-gray-100 px-1 rounded text-xs">/hello</code> endpoint:</p>
+    <div class="flex gap-2 mb-3">
+      <input x-model="name" type="text" placeholder="Enter a name"
+             class="px-3 py-2 border border-gray-300 rounded-md text-sm w-52 focus:outline-none focus:ring-2 focus:ring-blue-500"
+             @keydown.enter="$dispatch('call-hello')">
+      <button @click="$dispatch('call-hello')"
+              class="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors">
+        Send
+      </button>
+    </div>
+    <pre class="bg-slate-800 text-slate-200 p-4 rounded text-sm overflow-x-auto"
+         x-text="result"
+         @call-hello.window="
+           fetch('/hello', {
+             method: 'POST',
+             headers: { 'Content-Type': 'application/json' },
+             body: JSON.stringify({ name })
+           }).then(async r => result = r.status + ' ' + r.statusText + '\n' + await r.text())
+         "></pre>
+  </div>
+
+  <!-- GET /health -->
+  <div class="bg-white p-6 rounded-lg shadow-sm" x-data="{ result: '// response will appear here' }">
+    <h2 class="text-lg font-semibold mb-3">GET /health</h2>
+    <button @click="fetch('/health').then(async r => result = r.status + ' ' + r.statusText + '\n' + await r.text())"
+            class="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors mb-3">
+      Check
+    </button>
+    <pre class="bg-slate-800 text-slate-200 p-4 rounded text-sm overflow-x-auto" x-text="result"></pre>
+  </div>
+
+  <script>
+    function tokenManager() {
+      return {
+        tokens: [],
+        newLabel: '',
+        newToken: null,
+        creating: false,
+
+        async init() {
+          await this.load();
+        },
+
+        async load() {
+          const res = await fetch('/api/tokens');
+          this.tokens = await res.json();
+        },
+
+        async create() {
+          const label = this.newLabel.trim();
+          if (!label) return;
+          this.creating = true;
+          try {
+            const res = await fetch('/api/tokens', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ label })
+            });
+            if (!res.ok) { alert('Failed to create token'); return; }
+            const data = await res.json();
+            this.newToken = data.raw_token;
+            this.newLabel = '';
+            await this.load();
+          } finally {
+            this.creating = false;
+          }
+        },
+
+        async revoke(id) {
+          if (!confirm('Revoke this token? This cannot be undone.')) return;
+          await fetch('/api/tokens/' + id, { method: 'DELETE' });
+          this.newToken = null;
+          await this.load();
+        }
+      };
+    }
+  </script>
+</body>
+</html>
