@@ -1,0 +1,8 @@
+name = "notes-api"
+version = "0.1.0"
+runtime = "deno"
+
+[[sql_db]]
+type = "duckdb"
+migrations = "./migrations"
+binding = "NOTES_DB"

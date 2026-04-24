@@ -1,0 +1,7 @@
+CREATE TABLE IF NOT EXISTS notes (
+    id VARCHAR PRIMARY KEY,
+    title VARCHAR NOT NULL,
+    body VARCHAR NOT NULL DEFAULT '',
+    created_at VARCHAR NOT NULL,
+    updated_at VARCHAR NOT NULL
+);
