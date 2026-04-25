@@ -3,3 +3,6 @@
 *.iml
 
 /openapi.yaml
+/deploy/
+/.secrets/
+/docker-data/*

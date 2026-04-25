@@ -97,6 +97,26 @@ pub fn create_delivery_channel(conn: &Connection, channel: &NewDeliveryChannel) 
     })
 }
 
+pub fn list_delivery_channels(conn: &Connection) -> Result<Vec<DeliveryChannel>> {
+    let mut statement = conn.prepare(
+        "SELECT channel_key, channel_name, channel_type, destination_uri, status
+         FROM control.delivery_channels
+         ORDER BY channel_key ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let channel_type: String = row.get(2)?;
+        let status: String = row.get(4)?;
+        Ok(DeliveryChannel {
+            channel_key: row.get(0)?,
+            channel_name: row.get(1)?,
+            channel_type: DeliveryChannelType::parse(&channel_type)?,
+            destination_uri: row.get(3)?,
+            status: DeliveryChannelStatus::parse(&status)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>>>()
+}
+
 pub fn get_delivery_channel_by_key(conn: &Connection, channel_key: &str) -> Result<Option<DeliveryChannel>> {
     match conn.query_row(
         "SELECT channel_key, channel_name, channel_type, destination_uri, status
@@ -232,6 +252,28 @@ pub fn create_delivery(conn: &Connection, delivery: &NewDelivery) -> Result<Deli
     )?;
     get_delivery_by_key(conn, &delivery.delivery_key)?
         .ok_or_else(|| Error::InvalidParameterName("delivery insert did not return row".to_string()))
+}
+
+pub fn list_deliveries(conn: &Connection) -> Result<Vec<Delivery>> {
+    let mut statement = conn.prepare(
+        "SELECT delivery_id, delivery_key, delivery_type, asset_id, database_ref_id, status, error_message
+         FROM control.deliveries
+         ORDER BY delivery_id DESC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let delivery_type: String = row.get(2)?;
+        let status: String = row.get(5)?;
+        Ok(Delivery {
+            delivery_id: row.get(0)?,
+            delivery_key: row.get(1)?,
+            delivery_type: DeliveryType::parse(&delivery_type)?,
+            asset_id: row.get(3)?,
+            database_ref_id: row.get(4)?,
+            status: DeliveryStatus::parse(&status)?,
+            error_message: row.get(6)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>>>()
 }
 
 pub fn get_delivery_by_key(conn: &Connection, delivery_key: &str) -> Result<Option<Delivery>> {

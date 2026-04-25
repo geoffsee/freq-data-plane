@@ -1,0 +1,32 @@
+app = "freq-data-plane"
+primary_region = "iad"
+kill_timeout = "30s"
+
+[build]
+  dockerfile = "deploy/Dockerfile"
+
+[env]
+  HOST = "0.0.0.0"
+  DATA_DIR = "/data"
+  SESSION_SECURE = "true"
+  USER_DB_PATH = "/data/user.duckdb"
+  CONTROL_PLANE_DB_PATH = "/data/control.duckdb"
+  TENANT_KEY = "default"
+
+[[mounts]]
+  source = "freq_data_plane_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_start_machines = true
+  auto_stop_machines = false
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "10s"
+    interval = "30s"
+    method = "GET"
+    path = "/health"
+    timeout = "5s"

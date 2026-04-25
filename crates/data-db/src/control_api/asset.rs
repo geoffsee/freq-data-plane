@@ -150,6 +150,30 @@ pub fn create_asset(conn: &Connection, new_asset: &NewAsset) -> Result<Asset> {
         .ok_or_else(|| Error::InvalidParameterName("asset insert did not return row".to_string()))
 }
 
+pub fn list_assets(conn: &Connection) -> Result<Vec<Asset>> {
+    let mut statement = conn.prepare(
+        "SELECT asset_id, asset_key, asset_name, asset_type, database_ref_id, owner_principal_id, classification, status
+         FROM control.assets
+         ORDER BY asset_id ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let asset_type: String = row.get(3)?;
+        let classification: String = row.get(6)?;
+        let status: String = row.get(7)?;
+        Ok(Asset {
+            asset_id: row.get(0)?,
+            asset_key: row.get(1)?,
+            asset_name: row.get(2)?,
+            asset_type: AssetType::parse(&asset_type)?,
+            database_ref_id: row.get(4)?,
+            owner_principal_id: row.get(5)?,
+            classification: Classification::parse(&classification)?,
+            status: AssetStatus::parse(&status)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>>>()
+}
+
 pub fn get_asset_by_key(conn: &Connection, asset_key: &str) -> Result<Option<Asset>> {
     match conn.query_row(
         "SELECT asset_id, asset_key, asset_name, asset_type, database_ref_id, owner_principal_id, classification, status

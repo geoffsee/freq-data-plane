@@ -4,7 +4,7 @@ use crate::state::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::post,
+    routing::get,
     Json, Router,
 };
 use data_sdk::{Asset, NewAsset};
@@ -12,8 +12,17 @@ use std::sync::Arc;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/assets", post(create))
-        .route("/assets/{asset_key}", axum::routing::get(get_by_key))
+        .route("/assets", get(list).post(create))
+        .route("/assets/{asset_key}", get(get_by_key))
+}
+
+async fn list(
+    State(state): State<Arc<AppState>>,
+    ApiBearerOrSession(_auth): ApiBearerOrSession,
+) -> Result<Json<Vec<Asset>>, ApiError> {
+    let cp = state.control_plane.lock().unwrap();
+    let assets = cp.list_assets()?;
+    Ok(Json(assets))
 }
 
 async fn create(

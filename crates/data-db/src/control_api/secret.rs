@@ -157,6 +157,42 @@ pub fn create_secret_handle(conn: &Connection, new_secret: &NewSecretHandle) -> 
         .ok_or_else(|| Error::InvalidParameterName("secret handle insert did not return row".to_string()))
 }
 
+pub fn list_secret_handles(conn: &Connection) -> Result<Vec<SecretHandle>> {
+    let mut statement = conn.prepare(
+        "SELECT
+            CAST(secret_handle_id AS VARCHAR),
+            secret_key,
+            secret_name,
+            provider,
+            auth_method,
+            external_secret_ref,
+            allowed_uri_prefix,
+            status,
+            CAST(created_at AS VARCHAR),
+            CAST(rotated_at AS VARCHAR)
+         FROM control.secret_handles
+         ORDER BY created_at ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let provider: String = row.get(3)?;
+        let auth_method: String = row.get(4)?;
+        let status: String = row.get(7)?;
+        Ok(SecretHandle {
+            secret_handle_id: row.get(0)?,
+            secret_key: row.get(1)?,
+            secret_name: row.get(2)?,
+            provider: SecretProvider::parse(&provider)?,
+            auth_method: AuthMethod::parse(&auth_method)?,
+            external_secret_ref: row.get(5)?,
+            allowed_uri_prefix: row.get(6)?,
+            status: SecretStatus::parse(&status)?,
+            created_at: row.get(8)?,
+            rotated_at: row.get(9)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>>>()
+}
+
 pub fn get_secret_handle_by_key(conn: &Connection, secret_key: &str) -> Result<Option<SecretHandle>> {
     match conn.query_row(
         "SELECT

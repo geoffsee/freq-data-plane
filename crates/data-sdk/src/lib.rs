@@ -68,17 +68,35 @@ pub struct ControlPlane {
 impl ControlPlane {
     pub fn open_in_memory() -> Result<Self> {
         let conn = Connection::open_in_memory()?;
+        enable_required_extensions(&conn)?;
         data_db::control_api::bootstrap_control_schema(&conn)?;
         Ok(Self { conn })
     }
 
     pub fn open(path: &str) -> Result<Self> {
         let conn = Connection::open(path)?;
+        enable_required_extensions(&conn)?;
+        data_db::control_api::bootstrap_control_schema(&conn)?;
+        Ok(Self { conn })
+    }
+
+    /// Open an encrypted DuckDB file using AES-GCM-256 (DuckDB 1.4.2+).
+    /// Creates the file encrypted if it doesn't exist.
+    pub fn open_encrypted(path: &str, key: &str) -> Result<Self> {
+        let conn = Connection::open_in_memory()?;
+        conn.execute_batch("LOAD '/app/duckdb_extensions/httpfs.duckdb_extension';")?;
+        let safe_path = path.replace('\'', "''");
+        let safe_key = key.replace('\'', "''");
+        conn.execute_batch(&format!(
+            "ATTACH '{safe_path}' AS enc_db (ENCRYPTION_KEY '{safe_key}'); USE enc_db;"
+        ))?;
+        enable_required_extensions(&conn)?;
         data_db::control_api::bootstrap_control_schema(&conn)?;
         Ok(Self { conn })
     }
 
     pub fn from_connection(conn: Connection) -> Result<Self> {
+        enable_required_extensions(&conn)?;
         data_db::control_api::bootstrap_control_schema(&conn)?;
         Ok(Self { conn })
     }
@@ -185,6 +203,10 @@ impl ControlPlane {
         })
     }
 
+    pub fn list_secrets(&self) -> Result<Vec<SecretHandle>> {
+        Ok(data_db::control_api::list_secret_handles(&self.conn)?)
+    }
+
     // -- Database Ref --
 
     pub fn create_database_ref(&self, db_ref: &NewDatabaseRef) -> Result<DatabaseRef> {
@@ -255,6 +277,10 @@ impl ControlPlane {
         })
     }
 
+    pub fn list_assets(&self) -> Result<Vec<Asset>> {
+        Ok(data_db::control_api::list_assets(&self.conn)?)
+    }
+
     // -- Schema Mapping --
 
     pub fn create_schema_mapping(&self, mapping: &NewSchemaMapping) -> Result<SchemaMapping> {
@@ -272,6 +298,10 @@ impl ControlPlane {
         })
     }
 
+    pub fn list_schema_mappings(&self) -> Result<Vec<SchemaMapping>> {
+        Ok(data_db::control_api::list_schema_mappings(&self.conn)?)
+    }
+
     // -- Access Policy --
 
     pub fn create_access_policy(&self, policy: &NewAccessPolicy) -> Result<AccessPolicy> {
@@ -287,6 +317,10 @@ impl ControlPlane {
             entity: "access_policy",
             key: policy_key.to_string(),
         })
+    }
+
+    pub fn list_access_policies(&self) -> Result<Vec<AccessPolicy>> {
+        Ok(data_db::control_api::list_access_policies(&self.conn)?)
     }
 
     // -- Delivery --
@@ -321,6 +355,14 @@ impl ControlPlane {
         })
     }
 
+    pub fn list_delivery_channels(&self) -> Result<Vec<DeliveryChannel>> {
+        Ok(data_db::control_api::list_delivery_channels(&self.conn)?)
+    }
+
+    pub fn list_deliveries(&self) -> Result<Vec<Delivery>> {
+        Ok(data_db::control_api::list_deliveries(&self.conn)?)
+    }
+
     // -- Session --
 
     pub fn create_session(&self, session: &NewSession) -> Result<Session> {
@@ -332,6 +374,20 @@ impl ControlPlane {
     pub fn create_audit_entry(&self, entry: &NewAuditLogEntry) -> Result<AuditLogEntry> {
         Ok(data_db::control_api::create_audit_log_entry(&self.conn, entry)?)
     }
+
+    pub fn list_audit_entries(&self, limit: i64) -> Result<Vec<AuditLogEntry>> {
+        Ok(data_db::control_api::list_audit_log_entries(&self.conn, limit)?)
+    }
+}
+
+fn enable_required_extensions(conn: &Connection) -> std::result::Result<(), duckdb::Error> {
+    // The control-plane schema uses JSON columns, which require DuckDB's json extension.
+    conn.execute_batch(
+        "SET extension_directory = '/app/duckdb_extensions';
+         SET autoinstall_known_extensions = true;
+         SET autoload_known_extensions = true;
+         LOAD json;",
+    )
 }
 
 #[cfg(test)]

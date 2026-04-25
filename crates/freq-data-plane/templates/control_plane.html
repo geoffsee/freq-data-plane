@@ -62,7 +62,7 @@
     .modal-backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
   </style>
 </head>
-<body class="font-sans text-gray-300 min-h-screen flex" x-data="controlPlane()">
+<body class="font-sans text-gray-300 min-h-screen flex" x-data="controlPlane()" x-init="init()">
 
   <!-- ───────────── SIDEBAR ───────────── -->
   <aside class="w-60 bg-surface-100 border-r border-surface-400 flex flex-col fixed h-full z-30">
@@ -107,8 +107,10 @@
           <span class="w-5 text-center text-base">&#9783;</span>
           <span class="font-medium">Audit Log</span>
         </span>
-        <span :class="view === 'audit' ? 'bg-phosphor/20 text-phosphor' : 'bg-surface-400 text-gray-500'"
-              class="text-[11px] font-mono px-1.5 py-0.5 rounded">48</span>
+        <span x-show="auditEntries.length > 0"
+              :class="view === 'audit' ? 'bg-phosphor/20 text-phosphor' : 'bg-surface-400 text-gray-500'"
+              class="text-[11px] font-mono px-1.5 py-0.5 rounded"
+              x-text="auditEntries.length"></span>
       </button>
     </nav>
 
@@ -135,10 +137,18 @@
         <p class="text-xs text-gray-500 font-mono" x-text="currentSubtitle"></p>
       </div>
       <div class="flex items-center gap-3">
-        <span class="inline-flex items-center gap-1.5 text-xs font-mono text-phosphor-dim bg-phosphor/10 px-2.5 py-1 rounded">
-          <span class="w-1.5 h-1.5 rounded-full bg-phosphor pulse-dot"></span>
-          operational
-        </span>
+        <template x-if="loading">
+          <span class="inline-flex items-center gap-1.5 text-xs font-mono text-gray-500 bg-surface-300 px-2.5 py-1 rounded">
+            <span class="w-1.5 h-1.5 rounded-full bg-gray-500 pulse-dot"></span>
+            loading
+          </span>
+        </template>
+        <template x-if="!loading">
+          <span class="inline-flex items-center gap-1.5 text-xs font-mono text-phosphor-dim bg-phosphor/10 px-2.5 py-1 rounded">
+            <span class="w-1.5 h-1.5 rounded-full bg-phosphor pulse-dot"></span>
+            operational
+          </span>
+        </template>
         <button x-show="currentCreate" @click="showModal = true"
                 class="px-3 py-1.5 bg-phosphor text-surface-100 text-sm font-semibold rounded hover:bg-phosphor-dim transition-colors">
           + Create
@@ -169,15 +179,17 @@
             <span class="w-1.5 h-1.5 rounded-full bg-phosphor pulse-dot"></span>
             Recent Activity
           </h3>
+          <template x-if="auditEntries.length === 0">
+            <p class="text-xs text-gray-600 font-mono">No audit events recorded yet.</p>
+          </template>
           <div class="space-y-2">
-            <template x-for="e in auditEntries.slice(0,5)" :key="e.id">
+            <template x-for="e in auditEntries.slice(0,5)" :key="e.audit_id">
               <div class="flex items-center gap-3 text-xs py-1.5">
-                <span class="font-mono text-gray-600 w-36 shrink-0" x-text="e.time"></span>
+                <span class="font-mono text-gray-600 w-36 shrink-0" x-text="e.occurred_at"></span>
                 <span :class="e.success ? 'text-phosphor' : 'text-ember'" class="w-4 text-center" x-text="e.success ? '✓' : '✗'"></span>
-                <span class="text-gray-400 font-mono" x-text="e.principal"></span>
+                <span class="text-gray-400 font-mono" x-text="principalName(e.principal_id)"></span>
                 <span class="text-gray-600">→</span>
                 <span class="text-white" x-text="e.action"></span>
-                <span class="text-gray-500 truncate" x-text="e.resource"></span>
               </div>
             </template>
           </div>
@@ -199,14 +211,17 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="t in tenants" :key="t.key">
+              <template x-if="tenants.length === 0">
+                <tr><td colspan="6" class="px-5 py-8 text-center text-xs text-gray-600 font-mono">No tenants found.</td></tr>
+              </template>
+              <template x-for="t in tenants" :key="t.tenant_key">
                 <tr class="border-b border-surface-400/50 table-row cursor-pointer">
-                  <td class="px-5 py-3 font-mono text-phosphor text-xs" x-text="t.key"></td>
-                  <td class="px-5 py-3 text-white" x-text="t.name"></td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="t.region"></td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="t.bucket"></td>
+                  <td class="px-5 py-3 font-mono text-phosphor text-xs" x-text="t.tenant_key"></td>
+                  <td class="px-5 py-3 text-white" x-text="t.tenant_name"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="t.default_region || '—'"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="t.default_bucket || '—'"></td>
                   <td class="px-5 py-3"><span :class="statusClass(t.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="t.status"></span></td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-500 truncate max-w-[200px]" x-text="t.uri"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500 truncate max-w-[200px]" x-text="t.control_plane_uri"></td>
                 </tr>
               </template>
             </tbody>
@@ -223,35 +238,32 @@
                 <th class="text-left px-5 py-3">Principal</th>
                 <th class="text-left px-5 py-3">Type</th>
                 <th class="text-left px-5 py-3">Email</th>
-                <th class="text-left px-5 py-3">Roles</th>
                 <th class="text-left px-5 py-3">Status</th>
               </tr>
             </thead>
             <tbody>
-              <template x-for="p in principals" :key="p.key">
+              <template x-if="principals.length === 0">
+                <tr><td colspan="4" class="px-5 py-8 text-center text-xs text-gray-600 font-mono">No principals found.</td></tr>
+              </template>
+              <template x-for="p in principals" :key="p.principal_key">
                 <tr class="border-b border-surface-400/50 table-row cursor-pointer">
                   <td class="px-5 py-3">
                     <div class="flex items-center gap-2.5">
-                      <div class="w-7 h-7 rounded bg-surface-400 flex items-center justify-center text-xs font-mono" :class="p.type === 'ServiceAccount' ? 'text-signal-info' : 'text-signal-purple'" x-text="p.display.charAt(0).toUpperCase()"></div>
+                      <div class="w-7 h-7 rounded bg-surface-400 flex items-center justify-center text-xs font-mono"
+                           :class="p.principal_type === 'service_account' ? 'text-signal-info' : 'text-signal-purple'"
+                           x-text="(p.display_name || p.principal_key).charAt(0).toUpperCase()"></div>
                       <div>
-                        <div class="text-white text-sm" x-text="p.display"></div>
-                        <div class="text-[11px] font-mono text-gray-500" x-text="p.key"></div>
+                        <div class="text-white text-sm" x-text="p.display_name || p.principal_key"></div>
+                        <div class="text-[11px] font-mono text-gray-500" x-text="p.principal_key"></div>
                       </div>
                     </div>
                   </td>
                   <td class="px-5 py-3">
                     <span class="text-[11px] font-mono px-2 py-0.5 rounded"
-                          :class="p.type === 'User' ? 'bg-signal-purple/15 text-signal-purple' : p.type === 'ServiceAccount' ? 'bg-signal-info/15 text-signal-info' : 'bg-surface-400 text-gray-400'"
-                          x-text="p.type"></span>
+                          :class="p.principal_type === 'user' ? 'bg-signal-purple/15 text-signal-purple' : p.principal_type === 'service_account' ? 'bg-signal-info/15 text-signal-info' : 'bg-surface-400 text-gray-400'"
+                          x-text="p.principal_type"></span>
                   </td>
                   <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="p.email || '—'"></td>
-                  <td class="px-5 py-3">
-                    <div class="flex gap-1.5 flex-wrap">
-                      <template x-for="r in p.roles" :key="r">
-                        <span class="text-[10px] font-mono bg-surface-400 text-gray-300 px-1.5 py-0.5 rounded" x-text="r"></span>
-                      </template>
-                    </div>
-                  </td>
                   <td class="px-5 py-3"><span :class="statusClass(p.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="p.status"></span></td>
                 </tr>
               </template>
@@ -275,18 +287,21 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="s in secrets" :key="s.key">
+              <template x-if="secrets.length === 0">
+                <tr><td colspan="6" class="px-5 py-8 text-center text-xs text-gray-600 font-mono">No secrets found.</td></tr>
+              </template>
+              <template x-for="s in secrets" :key="s.secret_key">
                 <tr class="border-b border-surface-400/50 table-row cursor-pointer">
                   <td class="px-5 py-3">
-                    <div class="text-white text-sm" x-text="s.name"></div>
-                    <div class="text-[11px] font-mono text-gray-500" x-text="s.key"></div>
+                    <div class="text-white text-sm" x-text="s.secret_name"></div>
+                    <div class="text-[11px] font-mono text-gray-500" x-text="s.secret_key"></div>
                   </td>
                   <td class="px-5 py-3">
                     <span class="text-[11px] font-mono px-2 py-0.5 rounded bg-signal-warn/15 text-signal-warn" x-text="s.provider"></span>
                   </td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="s.auth"></td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="s.prefix"></td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="s.rotated"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="s.auth_method"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="s.allowed_uri_prefix || '—'"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="s.rotated_at || '—'"></td>
                   <td class="px-5 py-3"><span :class="statusClass(s.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="s.status"></span></td>
                 </tr>
               </template>
@@ -309,19 +324,22 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="d in databases" :key="d.key">
+              <template x-if="databases.length === 0">
+                <tr><td colspan="5" class="px-5 py-8 text-center text-xs text-gray-600 font-mono">No databases found.</td></tr>
+              </template>
+              <template x-for="d in databases" :key="d.database_key">
                 <tr class="border-b border-surface-400/50 table-row cursor-pointer">
                   <td class="px-5 py-3">
-                    <div class="text-white text-sm" x-text="d.name"></div>
-                    <div class="text-[11px] font-mono text-gray-500" x-text="d.key"></div>
+                    <div class="text-white text-sm" x-text="d.database_name"></div>
+                    <div class="text-[11px] font-mono text-gray-500" x-text="d.database_key"></div>
                   </td>
                   <td class="px-5 py-3">
                     <span class="text-[11px] font-mono px-2 py-0.5 rounded"
-                          :class="d.kind.includes('Duckdb') ? 'bg-signal-warn/15 text-signal-warn' : d.kind.includes('Parquet') ? 'bg-phosphor/15 text-phosphor' : d.kind.includes('Iceberg') ? 'bg-signal-info/15 text-signal-info' : 'bg-surface-400 text-gray-400'"
-                          x-text="d.kind"></span>
+                          :class="d.database_kind.includes('duckdb') ? 'bg-signal-warn/15 text-signal-warn' : d.database_kind.includes('parquet') ? 'bg-phosphor/15 text-phosphor' : d.database_kind.includes('iceberg') ? 'bg-signal-info/15 text-signal-info' : 'bg-surface-400 text-gray-400'"
+                          x-text="d.database_kind"></span>
                   </td>
                   <td class="px-5 py-3 font-mono text-xs text-gray-400 truncate max-w-[280px]" x-text="d.uri"></td>
-                  <td class="px-5 py-3 font-mono text-xs text-signal-purple" x-text="d.alias"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-signal-purple" x-text="d.attach_alias || '—'"></td>
                   <td class="px-5 py-3"><span :class="statusClass(d.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="d.status"></span></td>
                 </tr>
               </template>
@@ -345,20 +363,23 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="a in assets" :key="a.key">
+              <template x-if="assets.length === 0">
+                <tr><td colspan="6" class="px-5 py-8 text-center text-xs text-gray-600 font-mono">No assets found.</td></tr>
+              </template>
+              <template x-for="a in assets" :key="a.asset_key">
                 <tr class="border-b border-surface-400/50 table-row cursor-pointer">
                   <td class="px-5 py-3">
-                    <div class="text-white text-sm" x-text="a.name"></div>
-                    <div class="text-[11px] font-mono text-gray-500" x-text="a.key"></div>
+                    <div class="text-white text-sm" x-text="a.asset_name"></div>
+                    <div class="text-[11px] font-mono text-gray-500" x-text="a.asset_key"></div>
                   </td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="a.type"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="a.asset_type"></td>
                   <td class="px-5 py-3">
                     <span class="text-[11px] font-mono font-medium px-2 py-0.5 rounded"
                           :class="classificationClass(a.classification)"
                           x-text="a.classification"></span>
                   </td>
-                  <td class="px-5 py-3 text-xs text-gray-400" x-text="a.owner"></td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="a.database"></td>
+                  <td class="px-5 py-3 text-xs text-gray-400" x-text="principalName(a.owner_principal_id)"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-500" x-text="databaseName(a.database_ref_id)"></td>
                   <td class="px-5 py-3"><span :class="statusClass(a.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="a.status"></span></td>
                 </tr>
               </template>
@@ -381,17 +402,20 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="m in mappings" :key="m.key">
+              <template x-if="mappings.length === 0">
+                <tr><td colspan="5" class="px-5 py-8 text-center text-xs text-gray-600 font-mono">No mappings found.</td></tr>
+              </template>
+              <template x-for="m in mappings" :key="m.mapping_key">
                 <tr class="border-b border-surface-400/50 table-row">
-                  <td class="px-5 py-3 font-mono text-xs text-phosphor" x-text="m.key"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-phosphor" x-text="m.mapping_key"></td>
                   <td class="px-5 py-3">
-                    <span class="font-mono text-xs text-white bg-surface-400 px-2 py-1 rounded" x-text="m.logicalSchema + '.' + m.logicalObject"></span>
+                    <span class="font-mono text-xs text-white bg-surface-400 px-2 py-1 rounded" x-text="m.logical_schema + (m.logical_object ? '.' + m.logical_object : '')"></span>
                   </td>
                   <td class="px-5 py-3 text-phosphor text-lg">→</td>
                   <td class="px-5 py-3">
-                    <span class="font-mono text-xs text-signal-info bg-signal-info/10 px-2 py-1 rounded" x-text="m.physicalSchema + '.' + m.physicalObject"></span>
+                    <span class="font-mono text-xs text-signal-info bg-signal-info/10 px-2 py-1 rounded" x-text="m.physical_schema + (m.physical_object ? '.' + m.physical_object : '')"></span>
                   </td>
-                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="m.type"></td>
+                  <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="m.mapping_type"></td>
                 </tr>
               </template>
             </tbody>
@@ -413,30 +437,33 @@
               </tr>
             </thead>
             <tbody>
-              <template x-for="p in policies" :key="p.key">
+              <template x-if="policies.length === 0">
+                <tr><td colspan="5" class="px-5 py-8 text-center text-xs text-gray-600 font-mono">No policies found.</td></tr>
+              </template>
+              <template x-for="p in policies" :key="p.policy_key">
                 <tr class="border-b border-surface-400/50 table-row cursor-pointer">
                   <td class="px-5 py-3">
-                    <div class="text-white text-sm" x-text="p.name"></div>
-                    <div class="text-[11px] font-mono text-gray-500" x-text="p.key"></div>
+                    <div class="text-white text-sm" x-text="p.policy_name"></div>
+                    <div class="text-[11px] font-mono text-gray-500" x-text="p.policy_key"></div>
                   </td>
                   <td class="px-5 py-3">
                     <span class="text-[11px] font-mono font-bold px-2 py-0.5 rounded"
-                          :class="p.effect === 'Allow' ? 'bg-phosphor/15 text-phosphor' : 'bg-ember/15 text-ember'"
+                          :class="p.effect === 'allow' ? 'bg-phosphor/15 text-phosphor' : 'bg-ember/15 text-ember'"
                           x-text="p.effect"></span>
                   </td>
                   <td class="px-5 py-3">
-                    <div class="text-xs text-gray-400" x-text="p.subjectType"></div>
-                    <div class="font-mono text-xs text-white" x-text="p.subject"></div>
+                    <div class="text-xs text-gray-400" x-text="p.subject_type"></div>
+                    <div class="font-mono text-xs text-white" x-text="policySubjectName(p)"></div>
                   </td>
                   <td class="px-5 py-3">
-                    <div class="text-xs text-gray-400" x-text="p.resourceType"></div>
-                    <div class="font-mono text-xs text-white" x-text="p.resource"></div>
+                    <div class="text-xs text-gray-400" x-text="p.resource_type"></div>
+                    <div class="font-mono text-xs text-white" x-text="policyResourceName(p)"></div>
                   </td>
                   <td class="px-5 py-3">
                     <div class="flex gap-1">
-                      <template x-for="perm in p.perms" :key="perm">
+                      <template x-for="perm in policyPerms(p)" :key="perm">
                         <span class="text-[10px] font-mono px-1.5 py-0.5 rounded"
-                              :class="p.effect === 'Allow' ? 'bg-phosphor/10 text-phosphor-dim' : 'bg-ember/10 text-ember-dim line-through'"
+                              :class="p.effect === 'allow' ? 'bg-phosphor/10 text-phosphor-dim' : 'bg-ember/10 text-ember line-through'"
                               x-text="perm"></span>
                       </template>
                     </div>
@@ -453,16 +480,19 @@
         <!-- Channels -->
         <div class="fade-up">
           <h3 class="text-xs font-mono uppercase tracking-widest text-gray-500 mb-3">Delivery Channels</h3>
+          <template x-if="channels.length === 0">
+            <p class="text-xs text-gray-600 font-mono mb-4">No delivery channels configured.</p>
+          </template>
           <div class="grid grid-cols-3 gap-4">
-            <template x-for="ch in channels" :key="ch.key">
+            <template x-for="ch in channels" :key="ch.channel_key">
               <div class="bg-surface-200 border border-surface-400 rounded-lg p-4 hover:border-phosphor/50 transition-colors cursor-pointer">
                 <div class="flex items-center justify-between mb-3">
-                  <span class="text-lg" x-text="ch.icon"></span>
+                  <span class="text-lg" x-text="channelIcon(ch.channel_type)"></span>
                   <span :class="statusClass(ch.status)" class="text-[11px] font-mono font-medium px-2 py-0.5 rounded" x-text="ch.status"></span>
                 </div>
-                <div class="text-white text-sm font-medium" x-text="ch.name"></div>
-                <div class="font-mono text-xs text-gray-500 mt-0.5" x-text="ch.type"></div>
-                <div class="font-mono text-[11px] text-gray-600 mt-2 truncate" x-text="ch.uri"></div>
+                <div class="text-white text-sm font-medium" x-text="ch.channel_name"></div>
+                <div class="font-mono text-xs text-gray-500 mt-0.5" x-text="ch.channel_type"></div>
+                <div class="font-mono text-[11px] text-gray-600 mt-2 truncate" x-text="ch.destination_uri || '—'"></div>
               </div>
             </template>
           </div>
@@ -478,27 +508,25 @@
                   <th class="text-left px-5 py-3">Delivery</th>
                   <th class="text-left px-5 py-3">Type</th>
                   <th class="text-left px-5 py-3">Asset</th>
-                  <th class="text-left px-5 py-3">Rows</th>
-                  <th class="text-left px-5 py-3">Size</th>
                   <th class="text-left px-5 py-3">Status</th>
+                  <th class="text-left px-5 py-3">Error</th>
                 </tr>
               </thead>
               <tbody>
-                <template x-for="d in deliveries" :key="d.key">
+                <template x-if="deliveries.length === 0">
+                  <tr><td colspan="5" class="px-5 py-8 text-center text-xs text-gray-600 font-mono">No deliveries found.</td></tr>
+                </template>
+                <template x-for="d in deliveries" :key="d.delivery_key">
                   <tr class="border-b border-surface-400/50 table-row cursor-pointer">
-                    <td class="px-5 py-3">
-                      <div class="text-white text-sm" x-text="d.key"></div>
-                      <div class="text-[11px] text-gray-500" x-text="d.time"></div>
-                    </td>
-                    <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="d.type"></td>
-                    <td class="px-5 py-3 font-mono text-xs text-signal-purple" x-text="d.asset"></td>
-                    <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="d.rows"></td>
-                    <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="d.size"></td>
+                    <td class="px-5 py-3 font-mono text-xs text-white" x-text="d.delivery_key"></td>
+                    <td class="px-5 py-3 font-mono text-xs text-gray-400" x-text="d.delivery_type"></td>
+                    <td class="px-5 py-3 font-mono text-xs text-signal-purple" x-text="assetName(d.asset_id)"></td>
                     <td class="px-5 py-3">
                       <span class="text-[11px] font-mono font-medium px-2 py-0.5 rounded"
-                            :class="d.status === 'Succeeded' ? 'bg-phosphor/15 text-phosphor' : d.status === 'Running' ? 'bg-signal-info/15 text-signal-info' : d.status === 'Failed' ? 'bg-ember/15 text-ember' : 'bg-signal-warn/15 text-signal-warn'"
+                            :class="d.status === 'succeeded' ? 'bg-phosphor/15 text-phosphor' : d.status === 'running' ? 'bg-signal-info/15 text-signal-info' : d.status === 'failed' ? 'bg-ember/15 text-ember' : 'bg-signal-warn/15 text-signal-warn'"
                             x-text="d.status"></span>
                     </td>
+                    <td class="px-5 py-3 font-mono text-xs text-ember" x-text="d.error_message || '—'"></td>
                   </tr>
                 </template>
               </tbody>
@@ -510,8 +538,11 @@
       <!-- ═══ AUDIT LOG ═══ -->
       <div x-show="view === 'audit'" x-cloak>
         <div class="bg-surface-200 border border-surface-400 rounded-lg p-5 fade-up">
+          <template x-if="auditEntries.length === 0">
+            <p class="text-xs text-gray-600 font-mono">No audit events recorded yet.</p>
+          </template>
           <div class="space-y-0">
-            <template x-for="(e, i) in auditEntries" :key="e.id">
+            <template x-for="(e, i) in auditEntries" :key="e.audit_id">
               <div class="flex gap-4 py-3 border-b border-surface-400/40 last:border-b-0">
                 <!-- Timeline gutter -->
                 <div class="flex flex-col items-center w-5 shrink-0 pt-0.5">
@@ -525,20 +556,17 @@
                     <span :class="e.success ? 'bg-phosphor/15 text-phosphor' : 'bg-ember/15 text-ember'" class="text-[10px] font-mono px-1.5 py-0.5 rounded" x-text="e.success ? 'ok' : 'fail'"></span>
                   </div>
                   <div class="flex items-center gap-2 text-xs">
-                    <span class="font-mono text-signal-purple" x-text="e.principal"></span>
-                    <template x-if="e.resource">
+                    <span class="font-mono text-signal-purple" x-text="principalName(e.principal_id)"></span>
+                    <template x-if="e.asset_id">
                       <span class="text-gray-600">on</span>
                     </template>
-                    <template x-if="e.resource">
-                      <span class="font-mono text-gray-400" x-text="e.resource"></span>
+                    <template x-if="e.asset_id">
+                      <span class="font-mono text-gray-400" x-text="assetName(e.asset_id)"></span>
                     </template>
                   </div>
-                  <div class="text-[11px] font-mono text-gray-600 mt-0.5" x-text="e.time"></div>
-                  <template x-if="e.error">
-                    <div class="mt-1.5 text-xs font-mono text-ember bg-ember/10 px-2 py-1 rounded inline-block" x-text="e.error"></div>
-                  </template>
-                  <template x-if="e.query">
-                    <div class="mt-1.5 text-xs font-mono text-gray-500 bg-surface-100 px-2 py-1 rounded" x-text="e.query"></div>
+                  <div class="text-[11px] font-mono text-gray-600 mt-0.5" x-text="e.occurred_at"></div>
+                  <template x-if="e.error_message">
+                    <div class="mt-1.5 text-xs font-mono text-ember bg-ember/10 px-2 py-1 rounded inline-block" x-text="e.error_message"></div>
                   </template>
                 </div>
               </div>
@@ -610,28 +638,98 @@
       return {
         view: 'overview',
         showModal: false,
+        loading: true,
 
-        navItems: [
-          { id: 'overview',    icon: '◫', label: 'Overview',       count: null },
-          { id: 'tenants',     icon: '⊞', label: 'Tenants',        count: 3 },
-          { id: 'principals',  icon: '⊛', label: 'Principals',     count: 6 },
-          { id: 'secrets',     icon: '⊘', label: 'Secrets',        count: 4 },
-          { id: 'databases',   icon: '⊟', label: 'Databases',      count: 5 },
-          { id: 'assets',      icon: '◆', label: 'Assets',         count: 8 },
-          { id: 'mappings',    icon: '⇌', label: 'Mappings',       count: 3 },
-          { id: 'policies',    icon: '⊜', label: 'Policies',       count: 5 },
-          { id: 'delivery',    icon: '⊳', label: 'Delivery',       count: 4 },
-        ],
+        tenants: [],
+        principals: [],
+        secrets: [],
+        databases: [],
+        assets: [],
+        mappings: [],
+        policies: [],
+        channels: [],
+        deliveries: [],
+        auditEntries: [],
 
-        stats: [
-          { icon: '⊞', label: 'Tenants',    value: 3,  sub: '3 active, 0 suspended' },
-          { icon: '◆', label: 'Assets',     value: 8,  sub: '2 confidential, 3 internal' },
-          { icon: '⊟', label: 'Databases',  value: 5,  sub: '12.4 GB total' },
-          { icon: '⊳', label: 'Deliveries', value: 47, sub: '3 running now' },
-        ],
+        // ID → display name lookup maps (built after fetch)
+        _principalMap: {},
+        _databaseMap: {},
+        _assetMap: {},
+
+        async init() {
+          this.loading = true;
+          try {
+            const [tenants, principals, secrets, databases, assets, mappings, policies, channels, deliveries, audit] =
+              await Promise.all([
+                fetch('/tenant').then(r => r.ok ? r.json() : null).then(t => t ? [t] : []),
+                fetch('/principals').then(r => r.ok ? r.json() : []),
+                fetch('/secrets').then(r => r.ok ? r.json() : []),
+                fetch('/databases').then(r => r.ok ? r.json() : []),
+                fetch('/assets').then(r => r.ok ? r.json() : []),
+                fetch('/mappings').then(r => r.ok ? r.json() : []),
+                fetch('/policies').then(r => r.ok ? r.json() : []),
+                fetch('/delivery-channels').then(r => r.ok ? r.json() : []),
+                fetch('/deliveries').then(r => r.ok ? r.json() : []),
+                fetch('/audit?limit=50').then(r => r.ok ? r.json() : []),
+              ]);
+
+            this.tenants = tenants;
+            this.principals = principals;
+            this.secrets = secrets;
+            this.databases = databases;
+            this.assets = assets;
+            this.mappings = mappings;
+            this.policies = policies;
+            this.channels = channels;
+            this.deliveries = deliveries;
+            this.auditEntries = audit;
+
+            // Build lookup maps
+            this._principalMap = {};
+            for (const p of principals) {
+              this._principalMap[p.principal_id] = p.display_name || p.principal_key;
+            }
+            this._databaseMap = {};
+            for (const d of databases) {
+              this._databaseMap[d.database_ref_id] = d.database_key;
+            }
+            this._assetMap = {};
+            for (const a of assets) {
+              this._assetMap[a.asset_id] = a.asset_key;
+            }
+          } catch (e) {
+            console.error('Failed to load control plane data', e);
+          } finally {
+            this.loading = false;
+          }
+        },
+
+        get navItems() {
+          return [
+            { id: 'overview',   icon: '◫', label: 'Overview',       count: null },
+            { id: 'tenants',    icon: '⊞', label: 'Tenants',        count: this.tenants.length || null },
+            { id: 'principals', icon: '⊛', label: 'Principals',     count: this.principals.length || null },
+            { id: 'secrets',    icon: '⊘', label: 'Secrets',        count: this.secrets.length || null },
+            { id: 'databases',  icon: '⊟', label: 'Databases',      count: this.databases.length || null },
+            { id: 'assets',     icon: '◆', label: 'Assets',         count: this.assets.length || null },
+            { id: 'mappings',   icon: '⇌', label: 'Mappings',       count: this.mappings.length || null },
+            { id: 'policies',   icon: '⊜', label: 'Policies',       count: this.policies.length || null },
+            { id: 'delivery',   icon: '⊳', label: 'Delivery',       count: (this.channels.length + this.deliveries.length) || null },
+          ];
+        },
+
+        get stats() {
+          const active = arr => arr.filter(x => x.status === 'active').length;
+          return [
+            { icon: '⊞', label: 'Tenants',    value: this.tenants.length,   sub: `${active(this.tenants)} active` },
+            { icon: '◆', label: 'Assets',     value: this.assets.length,    sub: `${this.assets.filter(a => a.classification === 'confidential' || a.classification === 'restricted').length} sensitive` },
+            { icon: '⊟', label: 'Databases',  value: this.databases.length, sub: `${active(this.databases)} active` },
+            { icon: '⊳', label: 'Deliveries', value: this.deliveries.length, sub: `${this.deliveries.filter(d => d.status === 'running').length} running` },
+          ];
+        },
 
         get currentTitle() {
-          const m = { overview: 'Overview', tenants: 'Tenants', principals: 'Principals & Roles', secrets: 'Secrets', databases: 'Database References', assets: 'Assets', mappings: 'Schema Mappings', policies: 'Access Policies', delivery: 'Delivery', audit: 'Audit Log' };
+          const m = { overview: 'Overview', tenants: 'Tenants', principals: 'Principals', secrets: 'Secrets', databases: 'Database References', assets: 'Assets', mappings: 'Schema Mappings', policies: 'Access Policies', delivery: 'Delivery', audit: 'Audit Log' };
           return m[this.view] || '';
         },
         get currentSubtitle() {
@@ -652,29 +750,29 @@
             ],
             principals: [
               { name: 'key',     label: 'Principal Key',  type: 'text',   placeholder: 'jane.smith' },
-              { name: 'type',    label: 'Type',           type: 'select', options: ['User', 'ServiceAccount', 'Group', 'System'] },
+              { name: 'type',    label: 'Type',           type: 'select', options: ['user', 'service_account', 'group', 'system'] },
               { name: 'display', label: 'Display Name',   type: 'text',   placeholder: 'Jane Smith' },
               { name: 'email',   label: 'Email',          type: 'text',   placeholder: 'jane@example.com' },
             ],
             secrets: [
               { name: 'key',      label: 'Secret Key',      type: 'text',   placeholder: 'prod-aws-creds' },
               { name: 'name',     label: 'Secret Name',     type: 'text',   placeholder: 'Production AWS Credentials' },
-              { name: 'provider', label: 'Provider',        type: 'select', options: ['Aws', 'Minio', 'R2', 'Gcs', 'Azure', 'Vault'] },
-              { name: 'auth',     label: 'Auth Method',     type: 'select', options: ['IamRole', 'InstanceProfile', 'Sts', 'AccessKey', 'Oauth', 'ExternalSecret'] },
+              { name: 'provider', label: 'Provider',        type: 'select', options: ['aws', 'minio', 'r2', 'gcs', 'azure', 'vault'] },
+              { name: 'auth',     label: 'Auth Method',     type: 'select', options: ['iam_role', 'instance_profile', 'sts', 'access_key', 'oauth', 'external_secret'] },
               { name: 'prefix',   label: 'Allowed URI Prefix', type: 'text', placeholder: 's3://my-bucket/' },
             ],
             databases: [
               { name: 'key',   label: 'Database Key',  type: 'text',   placeholder: 'analytics-warehouse' },
               { name: 'name',  label: 'Database Name', type: 'text',   placeholder: 'Analytics Warehouse' },
-              { name: 'kind',  label: 'Kind',          type: 'select', options: ['DuckdbFile', 'ParquetDataset', 'CsvDataset', 'JsonDataset', 'IcebergCatalog', 'DeltaTable'] },
+              { name: 'kind',  label: 'Kind',          type: 'select', options: ['duckdb_file', 'parquet_dataset', 'csv_dataset', 'json_dataset', 'iceberg_catalog', 'delta_table'] },
               { name: 'uri',   label: 'URI',           type: 'text',   placeholder: 's3://bucket/warehouse.duckdb' },
               { name: 'alias', label: 'Attach Alias',  type: 'text',   placeholder: 'analytics' },
             ],
             assets: [
               { name: 'key',    label: 'Asset Key',       type: 'text',   placeholder: 'users-table' },
               { name: 'name',   label: 'Asset Name',      type: 'text',   placeholder: 'Users Table' },
-              { name: 'type',   label: 'Asset Type',      type: 'select', options: ['Database', 'Schema', 'Table', 'View', 'File', 'Dataset', 'Feed', 'Export', 'Report', 'Model', 'Endpoint'] },
-              { name: 'class',  label: 'Classification',  type: 'select', options: ['Public', 'Internal', 'Confidential', 'Restricted'] },
+              { name: 'type',   label: 'Asset Type',      type: 'select', options: ['database', 'schema', 'table', 'view', 'file', 'dataset', 'feed', 'export', 'report', 'model', 'endpoint'] },
+              { name: 'class',  label: 'Classification',  type: 'select', options: ['public', 'internal', 'confidential', 'restricted'] },
               { name: 'desc',   label: 'Description',     type: 'textarea', placeholder: 'Describe this asset...' },
             ],
             mappings: [
@@ -683,115 +781,70 @@
               { name: 'lobject',  label: 'Logical Object',   type: 'text',   placeholder: 'users' },
               { name: 'pschema',  label: 'Physical Schema',  type: 'text',   placeholder: 'prod_analytics' },
               { name: 'pobject',  label: 'Physical Object',  type: 'text',   placeholder: 'user_events_v3' },
-              { name: 'type',     label: 'Type',             type: 'select', options: ['Database', 'Schema', 'Table', 'View', 'Function'] },
+              { name: 'type',     label: 'Type',             type: 'select', options: ['database', 'schema', 'table', 'view', 'function'] },
             ],
             policies: [
               { name: 'key',     label: 'Policy Key',    type: 'text',   placeholder: 'analyst-read-access' },
               { name: 'name',    label: 'Policy Name',   type: 'text',   placeholder: 'Analyst Read Access' },
-              { name: 'effect',  label: 'Effect',        type: 'select', options: ['Allow', 'Deny'] },
-              { name: 'subtype', label: 'Subject Type',  type: 'select', options: ['Principal', 'Role', 'Public'] },
-              { name: 'restype', label: 'Resource Type',  type: 'select', options: ['DatabaseRef', 'Asset', 'Schema', 'Table', 'View', 'UriPrefix', 'System'] },
+              { name: 'effect',  label: 'Effect',        type: 'select', options: ['allow', 'deny'] },
+              { name: 'subtype', label: 'Subject Type',  type: 'select', options: ['principal', 'role', 'public'] },
+              { name: 'restype', label: 'Resource Type',  type: 'select', options: ['database_ref', 'asset', 'schema', 'table', 'view', 'uri_prefix', 'system'] },
             ],
             delivery: [
               { name: 'key',   label: 'Channel Key',    type: 'text',   placeholder: 'prod-s3-export' },
               { name: 'name',  label: 'Channel Name',   type: 'text',   placeholder: 'Production S3 Export' },
-              { name: 'type',  label: 'Channel Type',   type: 'select', options: ['S3', 'Http', 'Email', 'Webhook', 'Sftp', 'Api', 'Internal'] },
+              { name: 'type',  label: 'Channel Type',   type: 'select', options: ['s3', 'http', 'email', 'webhook', 'sftp', 'api', 'internal'] },
               { name: 'uri',   label: 'Destination URI', type: 'text',   placeholder: 's3://exports/daily/' },
             ],
           };
           return f[this.view] || [];
         },
 
-        // ── Mock data ──
-        tenants: [
-          { key: 'acme-prod',   name: 'Acme Corp (Production)',  region: 'us-east-1',      bucket: 'acme-datalake-prod',   status: 'Active',    uri: 's3://acme-datalake-prod/control/control.duckdb' },
-          { key: 'acme-stage',  name: 'Acme Corp (Staging)',     region: 'us-east-1',      bucket: 'acme-datalake-stage',  status: 'Active',    uri: 's3://acme-datalake-stage/control/control.duckdb' },
-          { key: 'globex-prod', name: 'Globex Industries',       region: 'eu-west-1',      bucket: 'globex-lake-eu',       status: 'Active',    uri: 's3://globex-lake-eu/control/control.duckdb' },
-        ],
+        // Lookup helpers
+        principalName(id) {
+          if (id == null) return '—';
+          return this._principalMap[id] || `principal:${id}`;
+        },
+        databaseName(id) {
+          if (id == null) return '—';
+          return this._databaseMap[id] || `db:${id}`;
+        },
+        assetName(id) {
+          if (id == null) return '—';
+          return this._assetMap[id] || `asset:${id}`;
+        },
 
-        principals: [
-          { key: 'admin',         display: 'Admin',              type: 'User',           email: 'admin@freq.dev',             status: 'Active',   roles: ['admin', 'owner'] },
-          { key: 'jane.smith',    display: 'Jane Smith',         type: 'User',           email: 'jane.smith@acme.com',        status: 'Active',   roles: ['analyst', 'viewer'] },
-          { key: 'bob.chen',      display: 'Bob Chen',           type: 'User',           email: 'bob.chen@acme.com',          status: 'Active',   roles: ['engineer'] },
-          { key: 'ci-pipeline',   display: 'CI Pipeline',        type: 'ServiceAccount', email: null,                         status: 'Active',   roles: ['deployer'] },
-          { key: 'etl-worker',    display: 'ETL Worker',         type: 'ServiceAccount', email: null,                         status: 'Active',   roles: ['writer'] },
-          { key: 'legacy-bot',    display: 'Legacy Bot',         type: 'ServiceAccount', email: null,                         status: 'Disabled', roles: ['viewer'] },
-        ],
+        policySubjectName(p) {
+          if (p.subject_type === 'public') return '(everyone)';
+          if (p.subject_type === 'principal') return this.principalName(p.principal_id);
+          if (p.subject_type === 'role') return p.role_id != null ? `role:${p.role_id}` : '—';
+          return '—';
+        },
+        policyResourceName(p) {
+          if (p.resource_type === 'system') return '*';
+          if (p.resource_type === 'database_ref') return this.databaseName(p.database_ref_id);
+          if (p.resource_type === 'asset') return this.assetName(p.asset_id);
+          return '—';
+        },
+        policyPerms(p) {
+          const perms = [];
+          if (p.can_read) perms.push('read');
+          if (p.can_write) perms.push('write');
+          if (p.can_admin) perms.push('admin');
+          return perms;
+        },
 
-        secrets: [
-          { key: 'aws-prod',    name: 'AWS Production',     provider: 'Aws',   auth: 'IamRole',    prefix: 's3://acme-datalake-prod/',   rotated: '2026-04-20', status: 'Active' },
-          { key: 'aws-stage',   name: 'AWS Staging',        provider: 'Aws',   auth: 'AccessKey',  prefix: 's3://acme-datalake-stage/',  rotated: '2026-04-18', status: 'Active' },
-          { key: 'minio-dev',   name: 'MinIO Local Dev',    provider: 'Minio', auth: 'AccessKey',  prefix: 's3://local/',               rotated: '2026-04-01', status: 'Active' },
-          { key: 'vault-creds', name: 'HashiCorp Vault',    provider: 'Vault', auth: 'ExternalSecret', prefix: '*',                     rotated: '2026-03-15', status: 'Disabled' },
-        ],
-
-        databases: [
-          { key: 'analytics-wh',      name: 'Analytics Warehouse',      kind: 'DuckdbFile',      uri: 's3://acme-datalake-prod/warehouse/analytics.duckdb',  alias: 'analytics',  status: 'Active' },
-          { key: 'events-parquet',     name: 'Events Dataset',           kind: 'ParquetDataset',  uri: 's3://acme-datalake-prod/events/**/*.parquet',         alias: 'events',     status: 'Active' },
-          { key: 'user-profiles',      name: 'User Profiles',            kind: 'DuckdbFile',      uri: 's3://acme-datalake-prod/users/profiles.duckdb',       alias: 'profiles',   status: 'Active' },
-          { key: 'iceberg-catalog',    name: 'Iceberg Lakehouse',        kind: 'IcebergCatalog',  uri: 's3://acme-datalake-prod/iceberg/',                    alias: 'lakehouse',  status: 'Active' },
-          { key: 'legacy-csv-imports', name: 'Legacy CSV Imports',       kind: 'CsvDataset',      uri: 's3://acme-datalake-stage/legacy/csv/',                alias: 'legacy',     status: 'Archived' },
-        ],
-
-        assets: [
-          { key: 'events-raw',       name: 'Raw Events',            type: 'Table',    classification: 'Internal',      owner: 'Bob Chen',     database: 'events-parquet',   status: 'Active' },
-          { key: 'user-pii',         name: 'User PII',              type: 'Table',    classification: 'Restricted',    owner: 'Jane Smith',   database: 'user-profiles',    status: 'Active' },
-          { key: 'sessions-view',    name: 'Active Sessions',       type: 'View',     classification: 'Internal',      owner: 'Bob Chen',     database: 'analytics-wh',     status: 'Active' },
-          { key: 'revenue-report',   name: 'Revenue Report',        type: 'Report',   classification: 'Confidential',  owner: 'Jane Smith',   database: 'analytics-wh',     status: 'Active' },
-          { key: 'api-logs',         name: 'API Logs',              type: 'Dataset',  classification: 'Internal',      owner: 'CI Pipeline',  database: 'events-parquet',   status: 'Active' },
-          { key: 'public-catalog',   name: 'Public Product Catalog',type: 'Table',    classification: 'Public',        owner: 'Admin',        database: 'analytics-wh',     status: 'Active' },
-          { key: 'ml-features',      name: 'ML Feature Store',      type: 'Dataset',  classification: 'Confidential',  owner: 'Bob Chen',     database: 'iceberg-catalog',  status: 'Active' },
-          { key: 'legacy-users',     name: 'Legacy User Dump',      type: 'File',     classification: 'Restricted',    owner: 'Admin',        database: 'legacy-csv-imports', status: 'Deprecated' },
-        ],
-
-        mappings: [
-          { key: 'events-v3-map',  logicalSchema: 'public',    logicalObject: 'events',     physicalSchema: 'raw_ingest',      physicalObject: 'events_v3_partitioned', type: 'Table' },
-          { key: 'users-map',      logicalSchema: 'public',    logicalObject: 'users',      physicalSchema: 'pii_restricted',  physicalObject: 'user_records_enc',     type: 'Table' },
-          { key: 'revenue-view',   logicalSchema: 'analytics', logicalObject: 'revenue',    physicalSchema: 'finance_secure',  physicalObject: 'revenue_daily_mv',     type: 'View' },
-        ],
-
-        policies: [
-          { key: 'admin-full',       name: 'Admin Full Access',          effect: 'Allow', subjectType: 'Role',      subject: 'admin',       resourceType: 'System',      resource: '*',               perms: ['read', 'write', 'admin'] },
-          { key: 'analyst-read',     name: 'Analyst Read Access',        effect: 'Allow', subjectType: 'Role',      subject: 'analyst',     resourceType: 'DatabaseRef', resource: 'analytics-wh',    perms: ['read'] },
-          { key: 'deny-pii-export',  name: 'Deny PII Export',            effect: 'Deny',  subjectType: 'Role',      subject: 'analyst',     resourceType: 'Asset',       resource: 'user-pii',        perms: ['write', 'admin'] },
-          { key: 'ci-deploy',        name: 'CI Deploy Access',           effect: 'Allow', subjectType: 'Principal', subject: 'ci-pipeline', resourceType: 'DatabaseRef', resource: 'analytics-wh',    perms: ['read', 'write'] },
-          { key: 'public-read',      name: 'Public Catalog Open Access', effect: 'Allow', subjectType: 'Public',    subject: '(everyone)',  resourceType: 'Asset',       resource: 'public-catalog',  perms: ['read'] },
-        ],
-
-        channels: [
-          { key: 'prod-s3-export',  name: 'Production S3 Export',  type: 'S3',      uri: 's3://acme-exports/daily/',           status: 'Active',   icon: '☁' },
-          { key: 'webhook-slack',   name: 'Slack Notifications',   type: 'Webhook', uri: 'https://hooks.slack.com/...',        status: 'Active',   icon: '⚡' },
-          { key: 'sftp-partner',    name: 'Partner SFTP',          type: 'Sftp',    uri: 'sftp://partner.example.com/inbound', status: 'Disabled', icon: '⇅' },
-        ],
-
-        deliveries: [
-          { key: 'del-20260424-001', type: 'Export',     asset: 'revenue-report',  rows: '142,387',  size: '24.3 MB',  status: 'Succeeded', time: '2026-04-24 13:00:02' },
-          { key: 'del-20260424-002', type: 'Snapshot',   asset: 'events-raw',      rows: '1,203,841',size: '312.7 MB', status: 'Running',   time: '2026-04-24 13:15:00' },
-          { key: 'del-20260424-003', type: 'Import',     asset: 'ml-features',     rows: '89,201',   size: '18.1 MB',  status: 'Pending',   time: '2026-04-24 14:00:00' },
-          { key: 'del-20260423-018', type: 'Export',     asset: 'api-logs',        rows: '2,891,002',size: '1.2 GB',   status: 'Failed',    time: '2026-04-23 22:00:00' },
-        ],
-
-        auditEntries: [
-          { id: 1,  time: '2026-04-24 13:22:41', action: 'query',              principal: 'jane.smith',  resource: 'analytics-wh / revenue_daily_mv', success: true,  query: 'SELECT date, revenue FROM revenue WHERE date > \'2026-04-01\'' },
-          { id: 2,  time: '2026-04-24 13:21:03', action: 'delivery.start',     principal: 'etl-worker',  resource: 'events-raw',                      success: true },
-          { id: 3,  time: '2026-04-24 13:18:55', action: 'attach_database',    principal: 'jane.smith',  resource: 'analytics-wh',                    success: true },
-          { id: 4,  time: '2026-04-24 13:15:12', action: 'login',              principal: 'jane.smith',  resource: null,                              success: true },
-          { id: 5,  time: '2026-04-24 13:12:00', action: 'delivery.complete',  principal: 'etl-worker',  resource: 'revenue-report',                  success: true },
-          { id: 6,  time: '2026-04-24 12:58:33', action: 'policy.evaluate',    principal: 'bob.chen',    resource: 'user-pii',                        success: false, error: 'Denied by policy: deny-pii-export' },
-          { id: 7,  time: '2026-04-24 12:45:01', action: 'secret.rotate',      principal: 'admin',       resource: 'aws-prod',                        success: true },
-          { id: 8,  time: '2026-04-24 12:30:00', action: 'asset.create',       principal: 'ci-pipeline', resource: 'ml-features',                     success: true },
-          { id: 9,  time: '2026-04-24 11:59:59', action: 'delivery.fail',      principal: 'etl-worker',  resource: 'api-logs',                        success: false, error: 'Connection timeout: sftp://partner.example.com' },
-          { id: 10, time: '2026-04-24 11:30:12', action: 'login',              principal: 'legacy-bot',  resource: null,                              success: false, error: 'Principal disabled' },
-          { id: 11, time: '2026-04-24 10:00:00', action: 'schema_mapping.create', principal: 'admin',    resource: 'revenue-view',                    success: true },
-          { id: 12, time: '2026-04-24 09:45:22', action: 'login',              principal: 'admin',       resource: null,                              success: true },
-        ],
+        channelIcon(type) {
+          const icons = { s3: '☁', http: '⬡', email: '✉', webhook: '⚡', sftp: '⇅', api: '⊙', internal: '⊂' };
+          return icons[type] || '⊙';
+        },
 
         statusClass(s) {
-          const m = { Active: 'bg-phosphor/15 text-phosphor', Suspended: 'bg-signal-warn/15 text-signal-warn', Pending: 'bg-signal-warn/15 text-signal-warn', Disabled: 'bg-surface-500 text-gray-400', Deleted: 'bg-ember/15 text-ember', Archived: 'bg-surface-500 text-gray-400', Deprecated: 'bg-signal-warn/15 text-signal-warn' };
+          const m = { active: 'bg-phosphor/15 text-phosphor', suspended: 'bg-signal-warn/15 text-signal-warn', pending: 'bg-signal-warn/15 text-signal-warn', disabled: 'bg-surface-500 text-gray-400', deleted: 'bg-ember/15 text-ember', archived: 'bg-surface-500 text-gray-400', deprecated: 'bg-signal-warn/15 text-signal-warn' };
           return m[s] || 'bg-surface-400 text-gray-400';
         },
         classificationClass(c) {
-          const m = { Public: 'bg-phosphor/15 text-phosphor', Internal: 'bg-signal-info/15 text-signal-info', Confidential: 'bg-signal-warn/15 text-signal-warn', Restricted: 'bg-ember/15 text-ember' };
+          const m = { public: 'bg-phosphor/15 text-phosphor', internal: 'bg-signal-info/15 text-signal-info', confidential: 'bg-signal-warn/15 text-signal-warn', restricted: 'bg-ember/15 text-ember' };
           return m[c] || '';
         },
       };

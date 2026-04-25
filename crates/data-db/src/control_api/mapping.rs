@@ -84,6 +84,27 @@ pub fn create_schema_mapping(conn: &Connection, new_mapping: &NewSchemaMapping) 
     })
 }
 
+pub fn list_schema_mappings(conn: &Connection) -> Result<Vec<SchemaMapping>> {
+    let mut statement = conn.prepare(
+        "SELECT mapping_key, database_ref_id, logical_schema, logical_object, physical_schema, physical_object, mapping_type
+         FROM control.schema_mappings
+         ORDER BY mapping_key ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let mapping_type: String = row.get(6)?;
+        Ok(SchemaMapping {
+            mapping_key: row.get(0)?,
+            database_ref_id: row.get(1)?,
+            logical_schema: row.get(2)?,
+            logical_object: row.get(3)?,
+            physical_schema: row.get(4)?,
+            physical_object: row.get(5)?,
+            mapping_type: MappingType::parse(&mapping_type)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>>>()
+}
+
 pub fn get_schema_mapping_by_key(conn: &Connection, mapping_key: &str) -> Result<Option<SchemaMapping>> {
     match conn.query_row(
         "SELECT mapping_key, database_ref_id, logical_schema, logical_object, physical_schema, physical_object, mapping_type

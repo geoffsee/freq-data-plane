@@ -165,6 +165,34 @@ pub fn create_access_policy(conn: &Connection, new_policy: &NewAccessPolicy) -> 
     })
 }
 
+pub fn list_access_policies(conn: &Connection) -> Result<Vec<AccessPolicy>> {
+    let mut statement = conn.prepare(
+        "SELECT policy_key, policy_name, effect, subject_type, principal_id, role_id, resource_type, database_ref_id, asset_id, can_read, can_write, can_admin
+         FROM control.access_policies
+         ORDER BY policy_key ASC",
+    )?;
+    let rows = statement.query_map([], |row| {
+        let effect: String = row.get(2)?;
+        let subject_type: String = row.get(3)?;
+        let resource_type: String = row.get(6)?;
+        Ok(AccessPolicy {
+            policy_key: row.get(0)?,
+            policy_name: row.get(1)?,
+            effect: PolicyEffect::parse(&effect)?,
+            subject_type: SubjectType::parse(&subject_type)?,
+            principal_id: row.get(4)?,
+            role_id: row.get(5)?,
+            resource_type: ResourceType::parse(&resource_type)?,
+            database_ref_id: row.get(7)?,
+            asset_id: row.get(8)?,
+            can_read: row.get(9)?,
+            can_write: row.get(10)?,
+            can_admin: row.get(11)?,
+        })
+    })?;
+    rows.collect::<Result<Vec<_>>>()
+}
+
 pub fn get_access_policy_by_key(conn: &Connection, policy_key: &str) -> Result<Option<AccessPolicy>> {
     match conn.query_row(
         "SELECT policy_key, policy_name, effect, subject_type, principal_id, role_id, resource_type, database_ref_id, asset_id, can_read, can_write, can_admin

@@ -4,7 +4,7 @@ use crate::state::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::post,
+    routing::get,
     Json, Router,
 };
 use data_sdk::{DeliveryChannel, NewDeliveryChannel};
@@ -12,11 +12,17 @@ use std::sync::Arc;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/delivery-channels", post(create))
-        .route(
-            "/delivery-channels/{channel_key}",
-            axum::routing::get(get_by_key),
-        )
+        .route("/delivery-channels", get(list).post(create))
+        .route("/delivery-channels/{channel_key}", get(get_by_key))
+}
+
+async fn list(
+    State(state): State<Arc<AppState>>,
+    ApiBearerOrSession(_auth): ApiBearerOrSession,
+) -> Result<Json<Vec<DeliveryChannel>>, ApiError> {
+    let cp = state.control_plane.lock().unwrap();
+    let channels = cp.list_delivery_channels()?;
+    Ok(Json(channels))
 }
 
 async fn create(

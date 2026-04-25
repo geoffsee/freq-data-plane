@@ -1,0 +1,21 @@
+services:
+  freq-data-plane:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile
+    image: ghcr.io/geoffsee/freq-data-plane:latest
+    pull_policy: build
+    container_name: freq-data-plane
+    ports:
+      - "18080:8080"
+    environment:
+      HOST: "0.0.0.0"
+      PORT: "8080"
+      DATA_DIR: "/data"
+      SESSION_SECURE: "true"
+      USER_DB_PATH: "/data/user.duckdb"
+      CONTROL_PLANE_DB_PATH: "/data/control_plane.duckdb"
+      TENANT_KEY: "default"
+      DB_ENCRYPTION_KEY: "local-dev-encryption-key"
+    volumes:
+      - ./docker-data:/data

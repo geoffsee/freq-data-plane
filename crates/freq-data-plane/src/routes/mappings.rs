@@ -4,7 +4,7 @@ use crate::state::AppState;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::post,
+    routing::get,
     Json, Router,
 };
 use data_sdk::{NewSchemaMapping, SchemaMapping};
@@ -12,8 +12,17 @@ use std::sync::Arc;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
-        .route("/mappings", post(create))
-        .route("/mappings/{mapping_key}", axum::routing::get(get_by_key))
+        .route("/mappings", get(list).post(create))
+        .route("/mappings/{mapping_key}", get(get_by_key))
+}
+
+async fn list(
+    State(state): State<Arc<AppState>>,
+    ApiBearerOrSession(_auth): ApiBearerOrSession,
+) -> Result<Json<Vec<SchemaMapping>>, ApiError> {
+    let cp = state.control_plane.lock().unwrap();
+    let mappings = cp.list_schema_mappings()?;
+    Ok(Json(mappings))
 }
 
 async fn create(
