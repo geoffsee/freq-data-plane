@@ -6,3 +6,9 @@ runtime = "deno"
 type = "duckdb"
 migrations = "./migrations"
 binding = "NOTES_DB"
+
+# Optional: bind a RustFS-backed blob store
+# [[blob_store]]
+# type = "rustfs"
+# binding = "ASSETS_BLOB"
+# uri = "s3://notes-assets/"

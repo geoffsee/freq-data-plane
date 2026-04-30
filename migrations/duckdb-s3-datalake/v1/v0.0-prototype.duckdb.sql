@@ -183,6 +183,7 @@ CREATE TABLE IF NOT EXISTS control.database_refs (
     REFERENCES control.secret_handles(secret_handle_id),
 
     CHECK (database_kind IN (
+           'blob_store',
            'duckdb_file',
            'parquet_dataset',
            'csv_dataset',

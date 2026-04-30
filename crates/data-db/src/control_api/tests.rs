@@ -778,8 +778,21 @@ fn database_ref_list_and_status() {
     .expect("postgres ref should insert");
     assert_eq!(pg_ref.database_kind, DatabaseKind::PostgresDatabase);
 
+    let blob_ref = create_database_ref(
+        &conn,
+        &NewDatabaseRef {
+            database_key: "assets-store".to_string(),
+            database_name: "Assets Blob Store".to_string(),
+            database_kind: DatabaseKind::BlobStore,
+            uri: "s3://tenant-assets/app/".to_string(),
+            attach_alias: None,
+        },
+    )
+    .expect("blob store ref should insert");
+    assert_eq!(blob_ref.database_kind, DatabaseKind::BlobStore);
+
     let all = list_database_refs(&conn).expect("list should succeed");
-    assert_eq!(all.len(), 3);
+    assert_eq!(all.len(), 4);
 }
 
 #[test]

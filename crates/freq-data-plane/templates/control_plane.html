@@ -764,7 +764,7 @@
             databases: [
               { name: 'key',   label: 'Database Key',  type: 'text',   placeholder: 'analytics-warehouse' },
               { name: 'name',  label: 'Database Name', type: 'text',   placeholder: 'Analytics Warehouse' },
-              { name: 'kind',  label: 'Kind',          type: 'select', options: ['duckdb_file', 'parquet_dataset', 'csv_dataset', 'json_dataset', 'iceberg_catalog', 'delta_table'] },
+              { name: 'kind',  label: 'Kind',          type: 'select', options: ['blob_store', 'duckdb_file', 'parquet_dataset', 'csv_dataset', 'json_dataset', 'iceberg_catalog', 'delta_table'] },
               { name: 'uri',   label: 'URI',           type: 'text',   placeholder: 's3://bucket/warehouse.duckdb' },
               { name: 'alias', label: 'Attach Alias',  type: 'text',   placeholder: 'analytics' },
             ],

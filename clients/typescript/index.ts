@@ -9,7 +9,7 @@ export type PrincipalStatus = "active" | "disabled" | "deleted";
 export type SecretProvider = "aws" | "minio" | "r2" | "gcs" | "azure" | "vault" | "other";
 export type AuthMethod = "iam_role" | "instance_profile" | "sts" | "access_key" | "oauth" | "external_secret";
 export type SecretStatus = "active" | "disabled" | "deleted";
-export type DatabaseKind = "duckdb_file" | "parquet_dataset" | "csv_dataset" | "json_dataset" | "iceberg_catalog" | "delta_table" | "sqlite_file" | "postgres_database";
+export type DatabaseKind = "blob_store" | "duckdb_file" | "parquet_dataset" | "csv_dataset" | "json_dataset" | "iceberg_catalog" | "delta_table" | "sqlite_file" | "postgres_database";
 export type DatabaseRefStatus = "active" | "archived" | "deleted";
 export type BindingStatus = "active" | "disabled" | "deleted";
 export type AssetType = "database" | "schema" | "table" | "view" | "file" | "dataset" | "feed" | "export" | "report" | "model" | "endpoint";
@@ -152,6 +152,12 @@ export interface SqlDbEntry {
   type: "duckdb" | "sqlite" | "postgres";
   binding: string;
   migrations?: MigrationEntry[];
+}
+
+export interface BlobStoreEntry {
+  type: "rustfs";
+  binding: string;
+  uri: string;
 }
 
 export interface ConfigureResult {
@@ -402,8 +408,8 @@ export class FreqDataPlaneClient {
   deleteBinding(bindingId: number) { return this.request<void>("DELETE", `/bindings/${bindingId}`); }
 
   // ── Configure (orchestration) ──
-  configureDeployment(deploymentKey: string, sqlDb: SqlDbEntry[]) {
-    return this.request<ConfigureResult>("POST", `/deployments/${deploymentKey}/configure`, { sql_db: sqlDb });
+  configureDeployment(deploymentKey: string, sqlDb: SqlDbEntry[] = [], blobStore: BlobStoreEntry[] = []) {
+    return this.request<ConfigureResult>("POST", `/deployments/${deploymentKey}/configure`, { sql_db: sqlDb, blob_store: blobStore });
   }
 
   // ── Assets ──

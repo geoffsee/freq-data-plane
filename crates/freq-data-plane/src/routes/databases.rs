@@ -2,10 +2,10 @@ use crate::error::ApiError;
 use crate::extractors::ApiBearerOrSession;
 use crate::state::AppState;
 use axum::{
+    Json, Router,
     extract::{Path, State},
     http::StatusCode,
     routing::{get, post},
-    Json, Router,
 };
 use data_sdk::{
     AppliedMigration, DatabaseBinding, DatabaseKind, DatabaseRef, DatabaseRefStatus,
@@ -19,7 +19,10 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/databases", post(create).get(list))
         .route("/databases/provision", post(provision))
         .route("/databases/{database_key}", get(get_by_key).delete(archive))
-        .route("/databases/{database_key}/status", axum::routing::put(update_status))
+        .route(
+            "/databases/{database_key}/status",
+            axum::routing::put(update_status),
+        )
         .route("/databases/{database_key}/migrate", post(migrate))
         .route("/databases/{database_key}/migrations", get(list_migrations))
         .route("/deployments/{deployment_key}/configure", post(configure))
@@ -65,8 +68,8 @@ async fn update_status(
     Path(database_key): Path<String>,
     Json(body): Json<StatusUpdate>,
 ) -> Result<Json<DatabaseRef>, ApiError> {
-    let status = DatabaseRefStatus::parse(&body.status)
-        .map_err(|e| ApiError::BadRequest(e.to_string()))?;
+    let status =
+        DatabaseRefStatus::parse(&body.status).map_err(|e| ApiError::BadRequest(e.to_string()))?;
     let cp = state.control_plane.lock().unwrap();
     cp.update_database_ref_status(&database_key, status)?;
     let db_ref = cp.require_database_ref(&database_key)?;
@@ -103,12 +106,12 @@ async fn provision(
         "postgres" => {
             return Err(ApiError::BadRequest(
                 "postgres provisioning is not yet supported".to_string(),
-            ))
+            ));
         }
         other => {
             return Err(ApiError::BadRequest(format!(
                 "unsupported database type: {other}"
-            )))
+            )));
         }
     };
 
@@ -234,8 +237,19 @@ struct SqlDbEntry {
 }
 
 #[derive(Deserialize)]
+struct BlobStoreEntry {
+    #[serde(rename = "type")]
+    store_type: String,
+    binding: String,
+    uri: String,
+}
+
+#[derive(Deserialize)]
 struct ConfigureRequest {
+    #[serde(default)]
     sql_db: Vec<SqlDbEntry>,
+    #[serde(default)]
+    blob_store: Vec<BlobStoreEntry>,
 }
 
 #[derive(serde::Serialize)]
@@ -254,6 +268,13 @@ async fn configure(
     let mut databases = Vec::new();
     let mut bindings = Vec::new();
     let mut migrations_applied = 0usize;
+    let mut bound_names: std::collections::HashSet<String> = {
+        let cp = state.control_plane.lock().unwrap();
+        cp.list_bindings_for_deployment(&deployment_key)?
+            .into_iter()
+            .map(|b| b.binding_name)
+            .collect()
+    };
 
     for entry in &body.sql_db {
         let kind = match entry.db_type.as_str() {
@@ -262,12 +283,12 @@ async fn configure(
             "postgres" => {
                 return Err(ApiError::BadRequest(
                     "postgres provisioning is not yet supported".to_string(),
-                ))
+                ));
             }
             other => {
                 return Err(ApiError::BadRequest(format!(
                     "unsupported database type: {other}"
-                )))
+                )));
             }
         };
 
@@ -354,12 +375,7 @@ async fn configure(
             }
 
             // Create binding (idempotent — skip if already exists)
-            let existing_bindings = cp.list_bindings_for_deployment(&deployment_key)?;
-            let already_bound = existing_bindings
-                .iter()
-                .any(|b| b.binding_name == entry.binding);
-
-            if !already_bound {
+            if bound_names.insert(entry.binding.clone()) {
                 let binding = cp.create_database_binding(&NewDatabaseBinding {
                     database_ref_id: db_ref.database_ref_id,
                     deployment_key: deployment_key.clone(),
@@ -367,6 +383,75 @@ async fn configure(
                 })?;
                 bindings.push(binding);
             }
+        }
+
+        databases.push(db_ref);
+    }
+
+    for entry in &body.blob_store {
+        let kind = match entry.store_type.as_str() {
+            "rustfs" => DatabaseKind::BlobStore,
+            other => {
+                return Err(ApiError::BadRequest(format!(
+                    "unsupported blob storage type: {other}"
+                )));
+            }
+        };
+
+        if !entry.uri.starts_with("s3://") {
+            return Err(ApiError::BadRequest(
+                "rustfs blob storage uri must start with s3://".to_string(),
+            ));
+        }
+
+        let database_key = format!("{}-{}-blob", deployment_key, entry.binding.to_lowercase());
+
+        let existing = {
+            let cp = state.control_plane.lock().unwrap();
+            cp.get_database_ref(&database_key)?
+        };
+
+        let db_ref = match existing {
+            Some(existing) => existing,
+            None => {
+                let cp = state.control_plane.lock().unwrap();
+                let new_ref = NewDatabaseRef {
+                    database_key: database_key.clone(),
+                    database_name: entry.binding.clone(),
+                    database_kind: kind,
+                    uri: entry.uri.clone(),
+                    attach_alias: None,
+                };
+
+                // Backward compatibility: older control-plane databases may have a
+                // database_kind CHECK constraint that predates `blob_store`.
+                match cp.create_database_ref(&new_ref) {
+                    Ok(db_ref) => db_ref,
+                    Err(data_sdk::Error::Db(db_err))
+                        if db_err.to_string().contains("CHECK constraint failed")
+                            && db_err.to_string().contains("database_kind") =>
+                    {
+                        cp.create_database_ref(&NewDatabaseRef {
+                            database_key: new_ref.database_key,
+                            database_name: new_ref.database_name,
+                            database_kind: DatabaseKind::JsonDataset,
+                            uri: new_ref.uri,
+                            attach_alias: new_ref.attach_alias,
+                        })?
+                    }
+                    Err(e) => return Err(e.into()),
+                }
+            }
+        };
+
+        if bound_names.insert(entry.binding.clone()) {
+            let cp = state.control_plane.lock().unwrap();
+            let binding = cp.create_database_binding(&NewDatabaseBinding {
+                database_ref_id: db_ref.database_ref_id,
+                deployment_key: deployment_key.clone(),
+                binding_name: entry.binding.clone(),
+            })?;
+            bindings.push(binding);
         }
 
         databases.push(db_ref);

@@ -31,12 +31,17 @@ const config = parseToml(raw) as {
     migrations?: string;
     binding: string;
   }>;
+  blob_store?: Array<{
+    type: string;
+    binding: string;
+    uri: string;
+  }>;
 };
 
 console.log(`App: ${config.name}`);
 
-if (!config.sql_db?.length) {
-  console.log("No [[sql_db]] entries — nothing to configure.");
+if (!config.sql_db?.length && !config.blob_store?.length) {
+  console.log("No [[sql_db]] or [[blob_store]] entries — nothing to configure.");
   Deno.exit(0);
 }
 
@@ -89,6 +94,16 @@ for (const db of config.sql_db) {
   });
 }
 
+const blobStoreEntries = [];
+for (const blob of config.blob_store ?? []) {
+  console.log(`\n  Blob Store: ${blob.binding} (${blob.type}) -> ${blob.uri}`);
+  blobStoreEntries.push({
+    type: blob.type as "rustfs",
+    binding: blob.binding,
+    uri: blob.uri,
+  });
+}
+
 // 3. Call the configure endpoint
 const client = new FreqDataPlaneClient({
   baseUrl: DATA_PLANE_URL,
@@ -97,7 +112,7 @@ const client = new FreqDataPlaneClient({
 
 console.log(`\nConfiguring deployment "${config.name}"...`);
 
-const result = await client.configureDeployment(config.name, sqlDbEntries);
+const result = await client.configureDeployment(config.name, sqlDbEntries, blobStoreEntries);
 
 console.log(`\nDatabases provisioned: ${result.databases.length}`);
 for (const db of result.databases) {

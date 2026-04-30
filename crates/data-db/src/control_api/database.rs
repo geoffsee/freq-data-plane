@@ -1,9 +1,10 @@
-use duckdb::{params, Connection, Error, Result};
-use serde::{Serialize, Deserialize};
+use duckdb::{Connection, Error, Result, params};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DatabaseKind {
+    BlobStore,
     DuckdbFile,
     ParquetDataset,
     CsvDataset,
@@ -17,6 +18,7 @@ pub enum DatabaseKind {
 impl DatabaseKind {
     pub fn as_str(&self) -> &'static str {
         match self {
+            Self::BlobStore => "blob_store",
             Self::DuckdbFile => "duckdb_file",
             Self::ParquetDataset => "parquet_dataset",
             Self::CsvDataset => "csv_dataset",
@@ -30,6 +32,7 @@ impl DatabaseKind {
 
     pub fn parse(value: &str) -> Result<Self> {
         match value {
+            "blob_store" => Ok(Self::BlobStore),
             "duckdb_file" => Ok(Self::DuckdbFile),
             "parquet_dataset" => Ok(Self::ParquetDataset),
             "csv_dataset" => Ok(Self::CsvDataset),
@@ -94,7 +97,10 @@ pub struct NewDatabaseRef {
     pub attach_alias: Option<String>,
 }
 
-pub fn create_database_ref(conn: &Connection, new_database_ref: &NewDatabaseRef) -> Result<DatabaseRef> {
+pub fn create_database_ref(
+    conn: &Connection,
+    new_database_ref: &NewDatabaseRef,
+) -> Result<DatabaseRef> {
     conn.execute(
         "INSERT INTO control.database_refs (
             database_key,
@@ -111,8 +117,9 @@ pub fn create_database_ref(conn: &Connection, new_database_ref: &NewDatabaseRef)
             new_database_ref.attach_alias
         ],
     )?;
-    get_database_ref_by_key(conn, &new_database_ref.database_key)?
-        .ok_or_else(|| Error::InvalidParameterName("database ref insert did not return row".to_string()))
+    get_database_ref_by_key(conn, &new_database_ref.database_key)?.ok_or_else(|| {
+        Error::InvalidParameterName("database ref insert did not return row".to_string())
+    })
 }
 
 pub fn list_database_refs(conn: &Connection) -> Result<Vec<DatabaseRef>> {
@@ -148,7 +155,10 @@ pub fn update_database_ref_status(
     )
 }
 
-pub fn get_database_ref_by_key(conn: &Connection, database_key: &str) -> Result<Option<DatabaseRef>> {
+pub fn get_database_ref_by_key(
+    conn: &Connection,
+    database_key: &str,
+) -> Result<Option<DatabaseRef>> {
     match conn.query_row(
         "SELECT database_ref_id, database_key, database_name, database_kind, uri, attach_alias, status
          FROM control.database_refs
